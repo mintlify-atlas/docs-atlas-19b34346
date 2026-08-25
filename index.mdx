@@ -1,20 +1,85 @@
 ---
-title: "Introduction"
-description: "Welcome to your project"
+title: "OmniRoute: The Free AI Gateway"
+sidebarTitle: "Home"
+description: "One OpenAI-compatible endpoint, 350+ AI providers, 90+ free tiers, and 1,200+ models — with quota-aware auto-fallback and 12-engine token compression."
 ---
 
-Write a short description of your product here. What it does, who it's for, and what they can accomplish with it.
+OmniRoute is a free, self-hosted AI gateway that routes every request through a single OpenAI-compatible endpoint to 350+ AI providers. Connect Claude Code, Codex, Cursor, Cline, or Copilot once — and OmniRoute handles provider switching, quota management, and token compression automatically.
 
-<Tip>
-  Ready to make this your own? Start by editing this page. Update your `docs.json` file to customize your site. Then fill out the [Quickstart](/quickstart) page.
-</Tip>
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Be sending requests in under 3 minutes — no API keys required to start.
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    npm, Docker, Bun, from source, Arch Linux, or Nix — pick your method.
+  </Card>
+  <Card title="Providers" icon="network-wired" href="/features/providers">
+    Browse 350+ providers, 90+ free tiers, and ~1.51B free tokens/month.
+  </Card>
+  <Card title="Combos & Routing" icon="shuffle" href="/features/combos-routing">
+    Build smart routing chains with 19 strategies and quota-aware fallback.
+  </Card>
+  <Card title="Token Compression" icon="compress" href="/features/compression">
+    Cut token usage 15–95% automatically with the 12-engine pipeline.
+  </Card>
+  <Card title="API Reference" icon="code" href="/reference/api">
+    Full reference for all OpenAI-compatible endpoints and custom headers.
+  </Card>
+</CardGroup>
 
-<Card title="Quickstart" icon="rocket" href="/quickstart">
-  This card links to the quickstart page in your project.
-</Card>
-<Card title="Components" icon="puzzle-piece" href="https://mintlify.com/docs/components">
-  Add cards, callouts, steps, tabs, and more to design and structure your pages.
-</Card>
-<Card title="Settings" icon="gear" href="https://mintlify.com/docs/organize/settings">
-  Set your site name, branding, and navigation in the `docs.json` file.
-</Card>
+## How OmniRoute works
+
+OmniRoute runs as a local server on port `20128`. Point any OpenAI-compatible tool at `http://localhost:20128/v1`, set the model to `auto`, and OmniRoute takes care of everything else — routing, fallback, compression, and cost tracking.
+
+<Steps>
+  <Step title="Install OmniRoute">
+    ```bash
+    npm install -g omniroute
+    omniroute
+    ```
+    The gateway starts at `http://localhost:20128`. The dashboard opens automatically.
+  </Step>
+  <Step title="Connect a free provider">
+    Open the dashboard → **Providers** → **Add Provider** → select **Kiro AI**, **OpenCode Free**, or **Pollinations** — no credit card needed.
+  </Step>
+  <Step title="Point your tool at OmniRoute">
+    ```
+    Base URL:  http://localhost:20128/v1
+    API Key:   [copy from Dashboard → Endpoints]
+    Model:     auto
+    ```
+    Works with Claude Code, Codex, Cursor, Cline, Copilot, and any OpenAI-compatible client.
+  </Step>
+  <Step title="Verify it works">
+    ```bash
+    curl http://localhost:20128/v1/chat/completions \
+      -H "Authorization: Bearer YOUR_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"auto","messages":[{"role":"user","content":"Hello!"}]}'
+    ```
+    OmniRoute routes the request to the best available free provider automatically.
+  </Step>
+</Steps>
+
+## Key capabilities
+
+<CardGroup cols={2}>
+  <Card title="19 Routing Strategies" icon="route" href="/features/combos-routing">
+    From simple priority lists to power-of-two-choices, cost-optimized, and LKGP (last-known-good path) routing.
+  </Card>
+  <Card title="~1.51B Free Tokens/Month" icon="coins" href="/features/free-tiers">
+    OmniRoute catalogs 455 free-tier entries across 40 recurring pool keys, deduplicated by shared pool.
+  </Card>
+  <Card title="MCP Server (110 tools)" icon="plug" href="/integrations/mcp">
+    Expose OmniRoute over Model Context Protocol — plug into Claude Desktop, Cursor, or any MCP client.
+  </Card>
+  <Card title="CLI with 80+ Commands" icon="terminal" href="/reference/cli">
+    Interactive TUI chat, remote mode, provider management, combo creation, and auto-configure for every major coding tool.
+  </Card>
+  <Card title="A2A Protocol" icon="robot" href="/integrations/a2a">
+    Agent-to-agent JSON-RPC 2.0 + SSE interface so any AI agent can control OmniRoute directly.
+  </Card>
+  <Card title="Docker & Self-hosting" icon="docker" href="/deployment/docker">
+    Single-container deployment with Compose profiles, Caddy HTTPS, and Cloudflare tunnel support.
+  </Card>
+</CardGroup>

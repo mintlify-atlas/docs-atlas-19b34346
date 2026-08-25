@@ -1,0 +1,324 @@
+---
+title: "Deploy OmniRoute with Docker: Containers & Compose"
+sidebarTitle: "Docker"
+description: "Run OmniRoute in Docker with a single command. Includes RAM sizing for coding agents, Docker Compose profiles, HTTPS with Caddy, and Cloudflare tunnel setup."
+---
+
+OmniRoute ships a multi-platform Docker image (`linux/amd64` + `linux/arm64`) that bundles the Next.js standalone server, SQLite, and a self-contained runtime. A single `docker run` command is enough to get a working instance; the sections below cover environment file usage, Compose profiles, RAM sizing for coding agents, reverse-proxy HTTPS with Caddy, Cloudflare tunnels, and alternative runtimes like Podman and Bun.
+
+## Quick Start
+
+The minimal run command binds to loopback and mounts a named volume so your data survives container restarts:
+
+```bash
+docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+```
+
+<Note>
+  Always include `--stop-timeout 40`. OmniRoute uses SQLite in WAL mode and needs time to checkpoint pending writes before the process exits. The bundled Compose files already set a 40-second stop grace period.
+</Note>
+
+### With an Environment File
+
+For any non-trivial deployment, pass secrets through a `.env` file rather than inline `-e` flags:
+
+```bash
+cp .env.example .env
+# Edit .env — set JWT_SECRET, API_KEY_SECRET, INITIAL_PASSWORD at minimum
+
+docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
+  --env-file .env \
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+```
+
+---
+
+## RAM Sizing for Coding Agents
+
+The image ships with `OMNIROUTE_MEMORY_MB=1024` (1 GiB V8 heap). That default is sized for the dashboard and light chat, not for long coding-agent sessions. Long `POST /v1/responses` bodies — hundreds of messages, dozens of tools — retain multiple in-memory graphs during compression. Two overlapping ~750k-token requests have aborted V8 at a 12 GiB heap and triggered a 16 GiB cgroup OOM kill.
+
+Size the **container `--memory` flag above the heap** to leave room for native buffers, SQLite, and compression intermediates that live outside V8.
+
+| Workload | `OMNIROUTE_MEMORY_MB` | Container (`--memory`) |
+|---|---|---|
+| Dashboard / light chat | `1024` (default) | ≥ 2g |
+| One coding agent (Claude / Codex / Grok) | `8192` | ≥ 10g |
+| Two concurrent long `/v1/responses` | `10240`–`12288` | ≥ 12–16g |
+
+Example command for a single coding-agent workload:
+
+```bash
+docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
+  -e OMNIROUTE_MEMORY_MB=8192 --memory=10g \
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+```
+
+<Warning>
+  Do not raise `OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT` to increase concurrency without also increasing container RAM. Two overlapping large contexts already abort V8 at ~12 GiB. For higher throughput, run N independent containers each with their own `DATA_DIR` volume.
+</Warning>
+
+---
+
+## Docker Compose
+
+Clone the repository and copy the example env file before starting any profile:
+
+```bash
+cp .env.example .env
+# Set JWT_SECRET, API_KEY_SECRET, INITIAL_PASSWORD
+```
+
+<Tabs>
+  <Tab title="Base (headless)">
+    The `base` profile runs the minimal runtime with no provider CLIs bundled. Use this when Codex, Claude Code, or Cursor run on the host machine.
+
+    ```bash
+    docker compose --profile base up -d
+    ```
+
+    After starting, point the host CLI at the container:
+
+    ```bash
+    npm install -g omniroute
+    omniroute connect http://localhost:20128
+    omniroute setup-codex   # writes the real ~/.codex on your host
+    ```
+  </Tab>
+  <Tab title="CLI (bundled tools)">
+    The `cli` profile adds `@openai/codex`, `@anthropic-ai/claude-code`, `droid`, and `openclaw` inside the container. Use this for agentic workflows where you want all CLIs co-located.
+
+    ```bash
+    docker compose --profile cli up -d
+    ```
+  </Tab>
+  <Tab title="Host (bind-mounted CLIs)">
+    The `host` profile mounts host CLI binaries and config dirs read-only into the container. Linux-first; useful when you want the container to write Codex/Claude profiles directly to your host home directory.
+
+    ```bash
+    docker compose --profile host up -d
+    ```
+  </Tab>
+  <Tab title="Web (Chromium / Playwright)">
+    The `web` profile adds a Chromium/Playwright runtime required by web-cookie providers such as `gemini-web`, `claude-web`, and `claude-turnstile`. The base image ships without Chromium, so those providers fail without this profile.
+
+    ```bash
+    docker compose --profile web up -d
+    ```
+  </Tab>
+</Tabs>
+
+### Combining Profiles
+
+Multiple profiles can be combined on a single command:
+
+```bash
+docker compose --profile cli --profile cliproxyapi up -d
+docker compose --profile base --profile memory up -d   # adds Qdrant sidecar
+```
+
+### Available Profiles
+
+| Profile | Service | When to use |
+|---|---|---|
+| `base` | `omniroute-base` | Headless server / minimal runtime, no provider CLIs bundled |
+| `cli` | `omniroute-cli` | Agentic workflows with bundled Codex, Claude Code, Droid, OpenClaw |
+| `host` | `omniroute-host` | Linux hosts that want host CLI binaries mounted read-only |
+| `web` | `omniroute-web` | Web-cookie providers that require Chromium (Playwright) |
+| `cliproxyapi` | `cliproxyapi` | CLIProxyAPI sidecar on port `8317` for upstream CLI proxying |
+| `memory` | `qdrant` | Qdrant sidecar on port `6333` for cross-instance semantic memory |
+
+---
+
+## Redis Sidecar
+
+Redis is **always started** alongside any profile — it has no profile gate. The `redis` service backs the distributed rate limiter and shared cache.
+
+| Detail | Value |
+|---|---|
+| Image | `redis:8.6.5-alpine` |
+| Container name | `omniroute-redis` |
+| Internal port | `6379` |
+| Host port override | `REDIS_PORT` (default `6379`) |
+| Host bind override | `REDIS_BIND_HOST` (default `127.0.0.1`) |
+| Volume | `omniroute-redis-data` → `/data` |
+
+The host-published port defaults to loopback because the Redis instance runs without `requirepass`. App containers reach it over the Compose network at `redis:6379`. If you set `REDIS_BIND_HOST=0.0.0.0`, add `--requirepass` to the Redis service command as well.
+
+---
+
+## Production Compose
+
+For an isolated production stack running in parallel with development, use `docker-compose.prod.yml`:
+
+```bash
+# Build and start the production stack
+docker compose -f docker-compose.prod.yml up -d --build
+
+# Stream logs
+docker compose -f docker-compose.prod.yml logs -f
+
+# Tear down (keeps volumes)
+docker compose -f docker-compose.prod.yml down
+```
+
+| Detail | Value |
+|---|---|
+| Dashboard host port | `PROD_DASHBOARD_PORT` (default `20130`) |
+| API host port | `PROD_API_PORT` (default `20131`) |
+| Image | `omniroute:prod` built from `runner-cli` target |
+| Data volume | `omniroute-prod-data` (persisted across rebuilds) |
+
+---
+
+## Image Tags and Release Channels
+
+<CardGroup cols={2}>
+  <Card title=":latest" icon="circle-check">
+    Highest published stable SemVer. Does **not** track `git main` — only promoted after a signed SemVer publish. Safe for `docker compose pull` workflows that want automatic stable updates.
+  </Card>
+  <Card title=":X.Y.Z" icon="tag">
+    Immutable versioned release. Pin this for GitOps deployments that must not drift (e.g. `diegosouzapw/omniroute:3.8.40`). Also available as `:X.Y.Z-web` for the Playwright image.
+  </Card>
+  <Card title=":next" icon="flask">
+    Rebuilt on every push to the active `release/v*` branch. Provides pre-release access to fixes before a stable tag is cut. **Not for production.** Pin the digest while evaluating a specific build.
+  </Card>
+  <Card title=":main" icon="code-branch">
+    Tracks the `main` branch. Development and integration testing only. Never use in production.
+  </Card>
+</CardGroup>
+
+<Tip>
+  `latest` is not a currency guarantee for git. If a fix shows up on GitHub but `:latest` looks frozen, pull `:next` to test the release branch or wait for the next SemVer tag.
+</Tip>
+
+To roll back to a previous stable version:
+
+```bash
+docker pull diegosouzapw/omniroute:<stable-version>
+docker compose up -d
+```
+
+---
+
+## Dockerfile Stages
+
+The repository ships a multi-stage `Dockerfile` with three exposed targets:
+
+| Stage | Base image | What's included |
+|---|---|---|
+| `runner-base` | `node:26-trixie-slim` | Next.js standalone output. No provider CLIs. |
+| `runner-cli` | `runner-base` | Adds `git`, `docker.io`, and global CLIs: `@openai/codex`, `@anthropic-ai/claude-code`, `droid`, `openclaw`. |
+| `builder` | `node:26-trixie-slim` | Build-only stage. Runs `npm ci` and `npm run build`. Not used at runtime. |
+
+Build a specific target:
+
+```bash
+docker build --target runner-base -t omniroute:base .
+docker build --target runner-cli  -t omniroute:cli  .
+```
+
+### Build-Time Memory Controls
+
+These are **build-time** `ARG`s — separate from the runtime `OMNIROUTE_MEMORY_MB` variable:
+
+| Build arg | Default | Effect |
+|---|---|---|
+| `OMNIROUTE_USE_TURBOPACK` | `1` | `0` builds with webpack instead. Lower peak memory, slower. |
+| `OMNIROUTE_BUILD_MEMORY_MB` | `6144` | V8 heap ceiling for the `next build` worker (`--max-old-space-size`). |
+| `OMNIROUTE_BUILD_WORKERS` | `3` | Number of build workers. Raise on large builders; lower on constrained hosts. |
+
+On memory-constrained build hosts, Turbopack can be OOM-killed silently. Switch to webpack if the build stops mid-compile with no error:
+
+```bash
+docker build --target runner-base \
+  --build-arg OMNIROUTE_USE_TURBOPACK=0 \
+  -t omniroute:base .
+```
+
+---
+
+## HTTPS with Caddy
+
+Caddy handles automatic TLS certificate provisioning. Ensure your domain's DNS A record points to your server before starting.
+
+```yaml
+services:
+  omniroute:
+    image: diegosouzapw/omniroute:latest
+    container_name: omniroute
+    restart: unless-stopped
+    volumes:
+      - omniroute-data:/app/data
+    environment:
+      - PORT=20128
+      - NEXT_PUBLIC_BASE_URL=https://your-domain.com
+      - BASE_URL=http://omniroute:20128
+      - AUTH_COOKIE_SECURE=true
+
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    command: caddy reverse-proxy --from https://your-domain.com --to http://omniroute:20128
+
+volumes:
+  omniroute-data:
+```
+
+<Note>
+  Set `AUTH_COOKIE_SECURE=true` whenever OmniRoute is behind HTTPS. Without it, session cookies are issued without the `Secure` flag.
+</Note>
+
+---
+
+## Cloudflare Quick Tunnel
+
+The dashboard includes a one-click **Cloudflare Quick Tunnel** under **Dashboard → Endpoints**. The first enable downloads `cloudflared` when needed, starts a temporary tunnel to your `/v1` endpoint, and shows the generated `https://*.trycloudflare.com/v1` URL below your normal public URL.
+
+<Accordion title="Tunnel notes and limitations">
+  - Quick Tunnel URLs are temporary and change after every restart.
+  - Tunnels are not auto-restored after an OmniRoute or container restart — re-enable from the dashboard.
+  - Supported platforms: Linux, macOS, and Windows on `x64` / `arm64`.
+  - Managed Quick Tunnels default to HTTP/2 transport to avoid QUIC UDP buffer warnings in constrained container environments. Set `CLOUDFLARED_PROTOCOL=quic` or `auto` to change the transport.
+  - Set `CLOUDFLARED_BIN=/absolute/path/to/cloudflared` to use an existing binary instead of downloading one.
+</Accordion>
+
+---
+
+## Podman Support
+
+OmniRoute runs under Podman rootless. Set `CONTAINER_HOST=podman` in `.env`, then fix ownership of the bind-mounted data directory before starting:
+
+```bash
+podman unshare chown 1000:1000 ./data
+```
+
+The container entrypoint detects `CONTAINER_HOST=podman` and prints topology-neutral guidance. All Compose profiles work with `podman compose` using the same commands.
+
+---
+
+## Bun-Specific Image
+
+A `Dockerfile.bun` is provided for builds using the Bun runtime instead of Node.js:
+
+```bash
+docker build -f Dockerfile.bun -t omniroute:bun .
+docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
+  -p 127.0.0.1:20128:20128 -v omniroute-data:/app/data omniroute:bun
+```
+
+---
+
+## SQLite and Availability Notes
+
+The default topology is **one Node process + one SQLite writer**. Do not run multiple container replicas against the same SQLite file — that will corrupt the database.
+
+<Warning>
+  Every container restart causes a full outage of in-flight SSE streams, dashboard sessions, and in-memory state. Set `strategy.type: Recreate` in Kubernetes and never use `replicas > 1` against a single SQLite volume.
+</Warning>
+
+For higher concurrency with coding agents today, run N independent containers each with their own `DATA_DIR` volume, fronted by a load balancer. Shared Postgres / multi-writer HA is tracked in [#8075](https://github.com/diegosouzapw/OmniRoute/issues/8075).

@@ -1,0 +1,166 @@
+---
+title: "Free AI Tiers: ~1.51B Tokens/Month at No Cost"
+sidebarTitle: "Free Tiers"
+description: "OmniRoute catalogs 455 free-tier entries across 40 provider pools, delivering ~1.51B free tokens per month — up to ~2.13B in the first month with signup credits."
+---
+
+Stacking free tiers by hand is painful — dozens of signups, dozens of rate limits, and no visibility into how much you actually have left. OmniRoute catalogs **455 free-tier entries across 40 recurring pool keys** and computes the token headline from the **20 pools with a published positive monthly budget**, deduplicated by shared pool. The result stays visible in real time on the dashboard at `/dashboard/free-tiers`. The catalog is re-audited every two weeks against live provider documentation, and the numbers move in both directions — a provider ends a free tier and the count drops; a new one lands and it climbs.
+
+## The Headline Numbers
+
+| Metric | Tokens | Meaning |
+|---|---|---|
+| **Documented recurring grant (steady)** | **~1.51B / month** | Free-tier pools, each shared pool counted once. The defensible number. |
+| **+ first month with signup credits** | **~2.13B** | Steady total plus one-time signup credits (Together $25, Z.AI 20M, DeepSeek 5M, …). First month only. |
+| **+ permanently free, no published cap** | *un-quantifiable* | Real recurring access, rate/concurrency-limited, no token cap to sum. Listed separately so they never inflate the headline. |
+| **+ OpenRouter deposit-unlock boost** | **+~24M / month** | A one-time $10 top-up raises OpenRouter's free pool from 50 to 1,000 req/day. |
+
+<Note>
+  The methodology matters: OmniRoute counts each shared pool **once**. Competitors who multiply per-model quotas across every model variant in a shared pool, or extrapolate rate-limited uncapped providers at 24/7 theoretical throughput, produce inflated numbers. The ~1.51B figure is what the catalog actually computes from documented positive monthly budgets.
+</Note>
+
+Biggest documented contributors: **Mistral ~1.00B**, **LLM7 ~150M**, **Groq ~117M**, **Gemini ~60M**, **Cerebras ~30M**, **Cloudflare AI ~30M**, **SambaNova ~30M**.
+
+## Free Provider Categories
+
+OmniRoute distinguishes five types of free access in its catalog metadata.
+
+<CardGroup cols={2}>
+  <Card title="Recurring Quantified Grants" icon="rotate">
+    Provider publishes an explicit daily or monthly token cap. These make up the ~1.51B steady headline. Examples: Mistral Experiment tier (2 RPM, 500K TPM, ~1B tokens/month), Groq (30 RPM / 14.4K RPD), Gemini Flash family (~60M tokens/month), Cerebras (1M tokens/day).
+  </Card>
+  <Card title="Permanently Free, No Cap" icon="infinity">
+    Real recurring access, rate/concurrency-limited, but no published token ceiling. Counted separately because multiplying their RPM × 24/7 × 30d produces a fantasy number. Examples: SiliconFlow, GLM-Flash (Z.AI), Tencent Hunyuan Lite, Baidu ERNIE, Kilo Gateway, OpenCode Zen.
+  </Card>
+  <Card title="Keyless / No-Auth" icon="key">
+    Public endpoints requiring no credential at all. Pre-wired into the `auto` model on a fresh install. Examples: OpenCode Free (`oc/`), Pollinations (`pol/`), UncloseAI (`unc/`), DuckDuckGo AI Chat (`ddgw/`), AI Horde (`horde/`).
+  </Card>
+  <Card title="Signup Credits (First Month)" icon="gift">
+    One-time grants on account creation. Do not recur; contribute to the ~2.13B first-month figure only. Examples: Vertex AI (~$300 credit), AgentRouter (~$100 credit), Together (~$25), DeepSeek (5M tokens), LongCat (10M tokens, KYC required).
+  </Card>
+</CardGroup>
+
+## Notable Free Providers
+
+<Tabs>
+  <Tab title="Recurring Quota">
+    These providers have documented, recurring free-token budgets that reset monthly or daily.
+
+    | Provider | Models | Steady tokens/month | Notes |
+    |---|---|---|---|
+    | **Mistral** | 5 models | ~1.00B | 2 RPM, 500K TPM, Experiment tier — no credit card |
+    | **LLM7** | 4 models | ~150M | Free token from token.llm7.io required (not a payment) |
+    | **Gemini** | 6 Flash-family models | ~60M | Flash 2.5/3/3.5 + Gemma; rate limits apply |
+    | **Cerebras** | 2 models | ~30M | 1M tokens/day, 5 RPM — no credit card |
+    | **Cloudflare AI** | 6 models | ~30M | 10K neurons/day — Cloudflare account required |
+    | **SambaNova** | 5 models | ~6M | 20 RPM, 20 RPD; permanent after signup grant expires |
+    | **Groq** | 5 models | ~15M | 30 RPM / 14.4K RPD; model-specific limits apply |
+    | **Cohere** | 6 models | ~800K | 1,000 API calls/month trial tier |
+  </Tab>
+  <Tab title="No-Auth / Keyless">
+    These providers require no credential. OmniRoute connects to them out of the box.
+
+    | Provider | Models | Notes |
+    |---|---|---|
+    | **OpenCode Free** | Current `*-free` model set | Keyless; no published token cap |
+    | **Pollinations** | GPT-5, Claude, Gemini, DeepSeek, Llama 4 | Keyless for documented free models; rate-limited |
+    | **Kiro AI** | Claude Sonnet 4.5, Haiku 4.5, DeepSeek V3.2 | OAuth/account flow; shared monthly pool |
+    | **DuckDuckGo AI Chat** | GPT-4o mini, Claude, Llama, Mixtral | Anonymous; no signup |
+    | **AI Horde** | Community distributed models | Keyless anonymous access; adding a free key raises queue priority |
+    | **UncloseAI** | Hermes-3-Llama-3.1-8B-AWQ and others | No auth; any non-empty string accepted as key |
+
+    <Warning>
+      Keyless providers like OpenCode Free have ToS flagged as `avoid` in the catalog — OmniRoute surfaces this metadata on the dashboard and in `/api/free-tier/summary`. The flag means the provider's terms are worth reviewing before use; it does not disable routing to the provider.
+    </Warning>
+  </Tab>
+  <Tab title="Permanently Free (No Cap)">
+    These providers have confirmed free-forever access with no published token ceiling.
+
+    | Provider | Models | Notes |
+    |---|---|---|
+    | **GLM / Z.AI** | GLM-4.7 / 4.5-Flash / 4.6V-Flash | GLM-Flash variants permanently free; 20M signup bonus |
+    | **SiliconFlow** | DeepSeek V3.2, Qwen3-8B, and free-$0 models | $1 trial credit + permanently free $0 models after identity verification |
+    | **Baidu (ERNIE)** | ERNIE-Tiny, ERNIE Speed variants | Permanently free; real-name authentication required |
+    | **Tencent Hunyuan** | Hunyuan-Lite | Permanently free since May 2024 |
+    | **Kilo Gateway** | Rotating Auto Free set (NVIDIA Nemotron 3, StepFun, Poolside) | Rate/concurrency-limited; no token cap |
+    | **OpenCode Zen** | 6 rotating free coding models | Rate/concurrency-limited; no token cap |
+  </Tab>
+</Tabs>
+
+## ToS Risk Catalog
+
+The catalog marks 15 providers with a `tos: avoid` flag — these are providers whose terms explicitly prohibit or restrict proxy/third-party use. The flag is **advisory, not a routing gate**: OmniRoute still routes to them by default; the flag surfaces on `/dashboard/free-tiers` and in `/api/free-tier/summary` so the operator can decide.
+
+Providers marked `avoid` include: Kiro AI, OpenCode Free (Anomaly Innovations), DuckDuckGo AI Chat, BlackBox, Coze, Fireworks AI, FriendliAI, iFlytek Spark, NLP Cloud, and others. The full list is maintained in the OmniRoute repository's provider catalog.
+
+## Connecting Free Providers
+
+<Steps>
+  <Step title="Open the Dashboard">
+    Go to `http://localhost:20128` in your browser and click **Providers** in the sidebar.
+  </Step>
+  <Step title="Add a Free Provider">
+    Click **+ Add Provider**. For the fastest path, pick a no-auth provider — no credentials needed. Recommended starting points:
+
+    - **Kiro AI** — free Claude models, OAuth/account flow
+    - **OpenCode Free** — no auth, no published token cap
+    - **Pollinations** — keyless GPT-5, Claude, Gemini, Llama
+  </Step>
+  <Step title="Review Provider Metadata">
+    Each provider card shows `hasFree` status, auth type, quota, privacy notes, and ToS risk flag. The live dashboard documents pool deduplication, discontinued entries, and signup-credit methodology at `/dashboard/free-tiers`.
+  </Step>
+  <Step title="Connect and Repeat">
+    For no-auth providers, click **Connect** — done. For API-key providers, paste your key. For OAuth providers, complete the sign-in flow. Connect several providers to broaden fallback coverage.
+  </Step>
+  <Step title="Use `auto` for Smart Routing">
+    With multiple free providers connected, use `model: "auto"` or `model: "auto/cheap"`. OmniRoute picks the best available free provider for each request and falls back automatically when one is busy or rate-limited.
+  </Step>
+</Steps>
+
+## Live Dashboard
+
+The `/dashboard/free-tiers` page shows:
+
+- **Used / remaining** quota for each connected provider pool
+- **Pool-deduped budget** breakdown — each shared pool counted once
+- **ToS risk flags** surfaced per provider
+- **Discontinued entries** shown as historical evidence, never counted in the headline
+
+The budget is also available via API:
+
+```bash
+# Get the current free-tier summary
+curl http://localhost:20128/api/free-tier/summary \
+  -H "Authorization: Bearer YOUR_KEY"
+
+# Exclude providers marked tos:avoid from the summary
+curl "http://localhost:20128/api/free-tier/summary?excludeTosAvoid=true" \
+  -H "Authorization: Bearer YOUR_KEY"
+```
+
+## OmniRoute Radar
+
+Radar is an opt-in catalog overlay that surfaces new free providers between OmniRoute releases — providers discovered after the last release but before the next audit. The community catalog and every existing free feature remain free regardless.
+
+- **~3B tokens/month ceiling** (separate from the documented ~1.51B) — depends on provider availability and is not a guarantee
+- **GET-only** — the OmniRoute client does not upload prompts, traffic, or usage telemetry
+- **Opt-in** — never enabled automatically
+
+Learn more at [radar.omniroute.online/planos](https://radar.omniroute.online/planos).
+
+## Free Tier Math: Reading the Catalog Correctly
+
+Understanding what the catalog metadata means prevents over-counting.
+
+| Catalog field | What it means |
+|---|---|
+| `NOAUTH` | OmniRoute stores no provider credential; does not guarantee uptime, privacy, or unlimited capacity |
+| `hasFree` | Discovery metadata; can represent a recurring quota, keyless access, signup credit, or promotion |
+| `recurring-uncapped` | No published token ceiling; rate and concurrency limits still apply |
+| `one-time-initial` | Does not recur after the signup grant is consumed |
+| `tos: avoid` | ToS worth reviewing before use; routing not disabled |
+| `discontinued` | Historical evidence; never counted as currently free |
+
+<Note>
+  The ~1.51B figure is re-audited every two weeks and moves in both directions. A provider that ends its free tier causes the number to drop; a new provider discovery causes it to climb. OmniRoute publishes what the catalog actually computes, never a rounded-up best case.
+</Note>

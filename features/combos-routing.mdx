@@ -1,0 +1,254 @@
+---
+title: "Combos & Routing: 19 Strategies for AI Failover"
+sidebarTitle: "Combos & Routing"
+description: "OmniRoute Combos chain multiple AI providers with 19 routing strategies — from priority and weighted to cost-optimized and LKGP — with automatic quota-aware fallback."
+---
+
+A **Combo** is a chain of models that OmniRoute routes across automatically. When quota runs out, a provider fails, or costs spike, the combo moves to the next eligible healthy model without any intervention from you. Combos are OmniRoute's flagship feature: they turn a collection of individual provider connections into a single resilient, intelligent endpoint. You can start with zero configuration using the `auto` model, or build custom chains with any of the 19 routing strategies.
+
+## Zero-Config Routing with `auto`
+
+The quickest way to use OmniRoute is to set your model to `auto` and let the engine handle everything. OmniRoute builds a virtual combo on-the-fly from all your connected providers, scores each one across 15 live factors, and routes to the best candidate. No combo creation required — it works from a fresh install.
+
+| Model ID | What it optimizes for |
+|---|---|
+| `auto` | Balanced default (LKGP — sticks to your last good provider) |
+| `auto/coding` | Quality-first weights for code generation |
+| `auto/fast` | Lowest latency first |
+| `auto/cheap` | Cheapest per token first |
+| `auto/offline` | Most quota / rate-limit headroom first |
+| `auto/smart` | Quality-first + 10% exploration to discover better models |
+
+You can also compose category and tier suffixes freely — `auto/coding:fast` routes the coding pool with low-latency weights; `auto/reasoning:pro` restricts candidates to reasoning/thinking models at premium tier; `auto/multimodal:free` keeps only free-tier multimodal-capable models.
+
+```bash
+# Balanced default — works with zero credentials on a fresh install
+curl http://localhost:20128/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"Hello"}]}'
+
+# Quality-first for code tasks
+curl http://localhost:20128/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"auto/coding","messages":[{"role":"user","content":"Write a Python function"}]}'
+
+# Speed-first for low-latency responses
+curl http://localhost:20128/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"auto/fast","messages":[{"role":"user","content":"What is 2+2?"}]}'
+```
+
+### How Auto-Scoring Works
+
+The `auto` strategy scores every candidate connection across 15 factors before each request. The default weights sum to 1.0 and are renormalized when you override them.
+
+| Factor | Default weight | What it measures |
+|---|---|---|
+| `health` | 0.1605 | Circuit-breaker state: CLOSED=1.0, HALF_OPEN=0.5, OPEN=0.0 |
+| `quota` | 0.1429 | Remaining quota / rate-limit headroom |
+| `costInv` | 0.1429 | Inverse blended cost (60% input + 40% output token price) |
+| `latencyInv` | 0.1143 | Inverse p95 latency normalized to the pool |
+| `taskFit` | 0.0762 | Task-type fitness (coding, review, planning, analysis, debugging, docs) |
+| `stability` | 0.0476 | Low latency variance and low error rate |
+| `tierPriority` | 0.0476 | Account tier: Ultra=1.0, Pro=0.67, Standard=0.33, Free=0.0 |
+| `tierAffinity` | 0.0476 | Affinity between candidate tier and manifest-recommended tier |
+| `specificityMatch` | 0.0476 | Match between request specificity and model tier |
+| `contextAffinity` | 0.0476 | Fit between request context size and model context window |
+| `sessionAvailability` | 0.0476 | OAuth session availability for this session |
+| `connectionDensity` | 0.0476 | Anti-concentration: spreads load across connections of the same provider |
+| `quality` | 0.0300 | Feedback-driven output-quality signal from routing-event tracker |
+| `cacheAffinity` | 0.00 | Rendezvous-hash affinity toward the connection likeliest to hold the cached prefix (disabled by default) |
+| `resetWindowAffinity` | 0.00 | Bias toward connections whose quota reset window is favorable (disabled by default) |
+
+Each `auto/*` variant remaps the weights to suit its goal. For example, `auto/fast` sets `latencyInv=0.32` and `health=0.28`; `auto/cheap` sets `costInv=0.37`; `auto/coding` sets `taskFit=0.37` and `stability=0.15`.
+
+## All 19 Routing Strategies
+
+When you create a custom Combo, you choose one strategy to govern how its targets are selected. Every strategy is available for persisted combos; the `auto` strategy is also what powers the zero-config `auto` model.
+
+<Accordion title="Load Balancing Strategies">
+
+| # | Strategy | What it does |
+|---|---|---|
+| 1 | `priority` | First-target ordered list — drain each before the next |
+| 2 | `fill-first` | Fill each target's quota fully before moving to the next |
+| 3 | `weighted` | Weighted random by per-target weight |
+| 4 | `round-robin` | Cycle through targets in order |
+| 5 | `p2c` | Power-of-two-choices random load balancing |
+| 6 | `least-used` | Pick the target with the lowest current load |
+| 7 | `random` | Uniform random pick (deduplicated) |
+| 8 | `strict-random` | Random without deduplicating repeats |
+
+</Accordion>
+
+<Accordion title="Cost & Quota Strategies">
+
+| # | Strategy | What it does |
+|---|---|---|
+| 9 | `cost-optimized` | Minimize $ per request from live catalog pricing |
+| 10 | `headroom` | Pick the target with the most remaining quota |
+| 11 | `reset-window` | Prefer the target whose quota window resets soonest |
+| 12 | `reset-aware` | Rank by quota reset time — short windows first |
+
+</Accordion>
+
+<Accordion title="Context & Cache Strategies">
+
+| # | Strategy | What it does |
+|---|---|---|
+| 13 | `context-relay` | Hand off context across targets for long conversations |
+| 14 | `context-optimized` | Pick the best fit for the current context size |
+| 15 | `cache-optimized` | Pin each reusable prompt prefix to the same account to maximize prompt-cache hits |
+
+</Accordion>
+
+<Accordion title="Intelligent & Compound Strategies">
+
+| # | Strategy | What it does |
+|---|---|---|
+| 16 | `lkgp` | Last-Known-Good Path — sticky to the last successful target |
+| 17 | `auto` | 15-factor live scoring across every connection |
+| 18 | `fusion` | Fan out to a panel of models; a judge synthesizes one answer |
+| 19 | `pipeline` | Chain steps sequentially — each target's output feeds the next |
+
+</Accordion>
+
+### Fusion Strategy
+
+`fusion` is the one strategy that does not pick a single target. It fans the prompt out to every panel model in parallel, then a configurable **judge model** synthesizes one final answer from all panel responses. Panel answers are anonymized (`Source 1`, `Source 2`, …) so the judge weighs substance, not model brand.
+
+```bash
+# Create a fusion combo with three panel models
+curl -X POST http://localhost:20128/api/combos \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "fusion-panel",
+    "strategy": "fusion",
+    "targets": [
+      {"model": "cc/claude-opus-4-7"},
+      {"model": "cx/gpt-5.5"},
+      {"model": "glm/glm-5.1"}
+    ],
+    "config": {
+      "judgeModel": "cc/claude-opus-4-7",
+      "fusionTuning": {"minPanel": 2, "stragglerGraceMs": 8000, "panelHardTimeoutMs": 90000}
+    }
+  }'
+
+# Call it like any other model
+curl http://localhost:20128/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"fusion-panel","messages":[{"role":"user","content":"Compare these approaches"}]}'
+```
+
+<Note>
+  Requests that carry a non-empty `tools` array bypass the panel entirely and route directly to a single model (the configured judge or `panel[0]`) with tools passed through unmodified. This ensures tool-calling clients get a real function-call decision rather than synthesized prose.
+</Note>
+
+## Creating a Custom Combo
+
+<Tabs>
+  <Tab title="Dashboard">
+    1. Open the dashboard at `http://localhost:20128`
+    2. Go to **Settings → Combos**
+    3. Click **New Combo**
+    4. Give it a name (this becomes the `model` ID you send in requests)
+    5. Add targets — each target is a `provider/model` pair
+    6. Choose a routing strategy
+    7. Save — the combo is immediately live
+
+    Call your combo by sending its exact name in the `model` field:
+
+    ```json
+    {"model": "my-combo-name", "messages": [...]}
+    ```
+  </Tab>
+  <Tab title="CLI">
+    ```bash
+    # List all combos
+    omniroute combo list
+
+    # View a specific combo's configuration
+    omniroute combo show my-combo-name
+    ```
+  </Tab>
+  <Tab title="API">
+    ```bash
+    # Create a priority-ordered combo
+    curl -X POST http://localhost:20128/api/combos \
+      -H "Authorization: Bearer YOUR_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "coding-fallback",
+        "strategy": "priority",
+        "targets": [
+          {"model": "cc/claude-sonnet-4-5"},
+          {"model": "cx/gpt-5.5"},
+          {"model": "auto/coding"}
+        ]
+      }'
+
+    # Create a cost-optimized combo
+    curl -X POST http://localhost:20128/api/combos \
+      -H "Authorization: Bearer YOUR_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "cost-saver",
+        "strategy": "cost-optimized",
+        "targets": [
+          {"model": "groq/llama-3.3-70b-versatile"},
+          {"model": "ds/deepseek-chat"},
+          {"model": "pol/openai"}
+        ]
+      }'
+    ```
+  </Tab>
+</Tabs>
+
+## Per-Request Routing Controls
+
+For `auto`-strategy combos, you can steer the routing decision on a single request without modifying the combo's stored configuration.
+
+```bash
+curl http://localhost:20128/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -H "X-OmniRoute-Mode: fast" \
+  -H "X-OmniRoute-Budget: 0.05" \
+  -H "X-OmniRoute-Budget-Fallback: strict" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"Quick answer please"}]}'
+```
+
+| Header | Values | Effect |
+|---|---|---|
+| `X-OmniRoute-Mode` | `fast`, `balanced`, `quality`, `cheap`, `reliable`, `offline` | Overrides scoring weights for this request only |
+| `X-OmniRoute-Budget` | positive number (USD) | Hard cost ceiling per request; filters candidates above the cap |
+| `X-OmniRoute-Budget-Fallback` | `cheapest` (default) or `strict` | `strict` returns HTTP 402 instead of silently overspending |
+
+Every response carries an `X-OmniRoute-Decision` header naming the strategy, provider, and latency that served the request.
+
+## Quota-Share
+
+When multiple API keys share the same provider account (for example, two Codex keys on the same OpenAI subscription), Quota-Share distributes that account's time-based quota fairly across all keys. This prevents one burst from exhausting the hourly window and blocking every other key.
+
+The engine uses a **work-conserving fair-share algorithm**: in generous mode (global usage below 50%), a key can borrow from idle shares; in strict mode (above 50%), each key's individual fair share is enforced. Soft-policy violations result in a 0.7× scoring penalty in the auto-combo — the key stays available but is deprioritized rather than hard-blocked.
+
+Configure Quota-Share pools at **Dashboard → Costs → Quota Share**, or via `PUT /api/quota/pools`.
+
+## 3-Layer Resilience
+
+All combos — whether `auto`, custom priority, or any other strategy — are protected by the same three independent resilience layers that cover all provider connections.
+
+<CardGroup cols={3}>
+  <Card title="Layer 1 — Circuit Breaker" icon="shield">
+    Trips at the whole-provider level on 408/5xx errors. Thresholds: OAuth 10×, API key 15×, local 2×. Auto-recovers via HALF-OPEN probe after 15–60 s.
+  </Card>
+  <Card title="Layer 2 — Connection Cooldown" icon="clock">
+    Cools individual keys on repeated failures. Base: 5 s OAuth / 3 s API key. Exponential ×2 backoff. 429 honors `Retry-After`. Sibling keys keep serving while one key cools.
+  </Card>
+  <Card title="Layer 3 — Model Lockout" icon="lock">
+    Per-model 429, local 404, or mode denials lock only that model — never the whole connection. Other models on the same connection continue serving normally.
+  </Card>
+</CardGroup>

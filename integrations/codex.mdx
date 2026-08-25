@@ -1,0 +1,237 @@
+---
+title: "Connect OpenAI Codex CLI to OmniRoute"
+sidebarTitle: "Codex"
+description: "Point Codex CLI at OmniRoute to route through 350+ providers. Auto-configure with omniroute setup-codex or set the base URL and API key manually."
+---
+
+OpenAI Codex CLI uses a TOML-based configuration file that supports custom OpenAI-compatible providers. OmniRoute registers as one such provider and translates Codex's Responses API wire format to whatever protocol each upstream model actually speaks — so every model, including those that only expose Chat Completions, works transparently behind the same `wire_api = "responses"` setting. You can generate ready-to-use profiles with `omniroute setup-codex` or write the configuration manually.
+
+## Ready-to-paste `config.toml`
+
+Create or update `~/.codex/config.toml` with the following. Replace `<YOUR_HOST>` with `localhost` for a local install or your VPS address, and set `OMNIROUTE_API_KEY` in your shell environment (never in the file itself).
+
+```toml
+# ~/.codex/config.toml
+model                          = "cx/gpt-5.5"
+model_provider                 = "omniroute"
+model_reasoning_effort         = "xhigh"
+model_context_window           = 400000
+model_auto_compact_token_limit = 350000
+tool_output_token_limit        = 32768
+
+[model_providers.omniroute]
+name                 = "OmniRoute"
+base_url             = "http://<YOUR_HOST>:20128/v1"
+env_key              = "OMNIROUTE_API_KEY"
+requires_openai_auth = false
+wire_api             = "responses"
+```
+
+```bash
+# ~/.bashrc or ~/.zshrc — the actual key value, never stored in config.toml
+export OMNIROUTE_API_KEY="<YOUR_KEY>"
+```
+
+<Note>
+For a local OmniRoute instance that does not require authentication, any non-empty placeholder key satisfies Codex's validation: `export OMNIROUTE_API_KEY="${OMNIROUTE_API_KEY:-local}"`.
+</Note>
+
+## Why `wire_api = "responses"` works for all models
+
+Codex CLI requires `wire_api = "responses"` (the OpenAI Responses API) since v0.138. Setting `wire_api = "chat"` causes an immediate startup crash. Many providers — including GLM and Kimi — expose only Chat Completions.
+
+OmniRoute solves this transparently:
+
+```
+Codex CLI
+  → wire_api = "responses"
+  → POST /v1/responses (OmniRoute)
+    → OmniRoute selects the provider's native protocol and translates when needed
+    → POST /responses (DeepSeek V4) or /chat/completions (Mistral / GLM / Kimi / others)
+```
+
+You never need a separate translation proxy. All models use `wire_api = "responses"` — OmniRoute handles the rest.
+
+## Auto-configure with `omniroute setup-codex`
+
+`omniroute setup-codex` fetches the live `/v1/models` catalog from a running OmniRoute and writes one `~/.codex/<name>.config.toml` profile per compatible text model. The command is idempotent — safe to re-run after adding new providers.
+
+```bash
+# Local OmniRoute on port 20128
+omniroute setup-codex
+
+# Remote VPS — bakes the VPS URL into every profile
+omniroute setup-codex --remote http://YOUR_SERVER:20128 --api-key YOUR_KEY
+
+# Only generate GLM and Kimi profiles
+omniroute setup-codex --only glm,kimi
+
+# Preview without writing files
+omniroute setup-codex --dry-run
+
+# Write profiles to a custom directory
+omniroute setup-codex --codex-home /path/to/.codex
+
+# Override the local OmniRoute port
+omniroute setup-codex --port 20129
+```
+
+## Launch Codex with `omniroute launch-codex`
+
+`omniroute launch-codex` health-checks your OmniRoute instance before spawning `codex` with the OmniRoute provider injected via `-c` flags — no config files are written.
+
+```bash
+# Launch against local OmniRoute
+omniroute launch-codex
+
+# Launch with a specific generated profile
+omniroute launch-codex --profile kimi-k27
+
+# Launch against a remote VPS
+omniroute launch-codex --remote http://YOUR_SERVER:20128 --api-key YOUR_KEY
+
+# Pass extra args through to codex
+omniroute launch-codex --profile glm52 -- --yolo "fix this bug"
+```
+
+You can also use the generic launcher:
+
+```bash
+# Interactive model picker → writes ~/.codex/<name>.config.toml
+omniroute configure codex
+
+# Launch codex with OmniRoute injected via -c flags (no config written)
+omniroute run codex --model glm/glm-5.2
+```
+
+## Context window and compaction settings
+
+Codex needs accurate context window and compaction values to avoid crashing near the token limit. Set these per model in your profile:
+
+| Field | Description |
+|---|---|
+| `model_context_window` | Total token budget. Set to the model's advertised limit. |
+| `model_auto_compact_token_limit` | Triggers automatic history compaction. Maximum 90% of `model_context_window`. |
+| `tool_output_token_limit` | Cap on tokens stored per tool call in history (not the max output size). |
+
+<Tip>
+Set `model_auto_compact_token_limit` to 85–88% of `model_context_window`. Values above 90% are silently ignored by Codex.
+</Tip>
+
+Selected model reference values:
+
+| Model | OmniRoute ID | Context | `auto_compact` | `tool_output_limit` |
+|---|---|---|---|---|
+| GPT-5.5 | `cx/gpt-5.5` | 400k | 350,000 | 32,768 |
+| Kimi K2.7 (thinking) | `kmc/kimi-k2.7` | 131,072 | 112,000 | 32,768 |
+| Kimi K2.6 | `kmc/kimi-k2.6` | 131,072 | 112,000 | 32,768 |
+| GLM-5.2 | `glm/glm-5.2` | 131,072 | 112,000 | 32,768 |
+| DeepSeek V4 Pro | `ds/deepseek-v4-pro` | 1,000,000 | 900,000 | 65,536 |
+| Mistral Large Latest | `mistral/mistral-large-latest` | 262,144 | 220,000 | 16,384 |
+
+## Model recommendations for coding tasks
+
+The `cx/` prefix identifies Codex App models in OmniRoute. For general coding workflows, `auto/coding` lets OmniRoute select the best available provider automatically.
+
+<CardGroup cols={2}>
+  <Card title="auto/coding" icon="code">
+    Quality-first routing for code generation. OmniRoute scores providers across quota, latency, and task fit. Recommended default for Codex sessions.
+  </Card>
+  <Card title="cx/gpt-5.5" icon="sparkles">
+    GPT-5.5 accessed via the Codex App Server provider (`cx/` prefix). 400K context window, suitable for large codebase analysis.
+  </Card>
+</CardGroup>
+
+### Codex App Server models (`cx/` prefix)
+
+| OmniRoute ID | Model |
+|---|---|
+| `cx/gpt-5.5` | GPT-5.5 standard |
+| `cx/gpt-5.4` | GPT-5.4 standard |
+| `cx/gpt-5.4-mini` | GPT-5.4 mini |
+| `cx/gpt-5.1-codex-mini` | GPT-5.1 Codex mini |
+
+## Pre-built profiles
+
+`omniroute setup-codex` generates profiles for known models with tuned settings. Here are the key categories:
+
+<Tabs>
+  <Tab title="Thinking models">
+    | Profile | Model | Context | Best for |
+    |---|---|---|---|
+    | `kimi-k27` | `kmc/kimi-k2.7` | 128k | Best thinking quality (Kimi) |
+    | `glm52` | `glm/glm-5.2` | 128k | GLM thinking |
+    | `glm52max` | `glm/glm-5.2-max` | 128k | GLM thinking max |
+    | `mimo-pro` | `opencode-go/mimo-v2.5-pro` | 128k | MiMo thinking |
+  </Tab>
+  <Tab title="General purpose">
+    | Profile | Model | Context | Best for |
+    |---|---|---|---|
+    | `kimi-k26` | `kmc/kimi-k2.6` | 128k | General purpose (Kimi) |
+    | `deepseek-pro` | `ollamacloud/deepseek-v4-pro` | 128k | DeepSeek Pro via OllamaCloud |
+    | `deepseek` | `ds/deepseek-v4-pro` | 1M | DeepSeek direct, huge context |
+    | `mimo` | `opencode-go/mimo-v2.5` | 128k | MiMo general |
+  </Tab>
+  <Tab title="Fast / cheap">
+    | Profile | Model | Context | Best for |
+    |---|---|---|---|
+    | `deepseek-flash` | `ollamacloud/deepseek-v4-flash` | 64k | Quick tasks |
+    | `gemini-flash` | `ollamacloud/gemini-3-flash-preview` | 1M | Very fast, huge context |
+    | `glm5turbo` | `glm/glm-5-turbo` | 128k | GLM Turbo |
+    | `mistral` | `mistral/mistral-large-latest` | 256k | Mistral Large |
+  </Tab>
+</Tabs>
+
+Quick decision table:
+
+| Task | Recommended profile |
+|---|---|
+| Rename, format, boilerplate | `--profile deepseek-flash` or `-p low` |
+| Debug, moderate refactor | `-p medium` or `-p kimi-k26` |
+| Architecture, deep analysis | `-p kimi-k27` or `-p glm52` or `-p xhigh` |
+| Codebase analysis (needs 1M ctx) | `--profile deepseek` or `--profile gemini-flash` |
+| Cost-conscious | `-p gemma4` or `-p gptoss` |
+
+## Long-running tasks
+
+Two OmniRoute server settings can silently interrupt multi-hour Codex sessions:
+
+**Session affinity** — by default (`sessionAffinityTtlMs = 0`), each turn of a multi-turn conversation is routed independently and may land on a different account, breaking prompt-cache continuity. Enable it from **Dashboard → Settings → Routing → Session Affinity** and set the TTL above the expected task length (maximum 86400 seconds = 24 hours).
+
+**Stream idle timeout** — the default `STREAM_IDLE_TIMEOUT_MS = 600000` (10 minutes) force-closes connections with no upstream chunk for 10 minutes. For reasoning-heavy tasks that go silent during deep thinking, raise or disable it in OmniRoute's environment:
+
+```bash
+# Disable stream idle + body inactivity cutoffs for long reasoning turns
+STREAM_IDLE_TIMEOUT_MS=0
+FETCH_BODY_TIMEOUT_MS=0
+```
+
+## macOS: Codex bundled inside the ChatGPT app
+
+If Codex was installed through the ChatGPT desktop app, the binary may not be on your `PATH`. Add it:
+
+```bash
+export PATH="/Applications/ChatGPT.app/Contents/Resources:$PATH"
+```
+
+## Troubleshooting
+
+<Accordion title="Error: wire_api = 'chat' is no longer supported">
+  Remove `wire_api = "chat"` from your config. Set `wire_api = "responses"` or omit the field entirely — it defaults to `"responses"` since Codex v0.138.
+</Accordion>
+
+<Accordion title="ERROR: Missing environment variable: OMNIROUTE_API_KEY">
+  Codex validates that the env var named by `env_key` exists before the first request. Export a real key for protected servers, or a non-empty placeholder (`OMNIROUTE_API_KEY=local`) when your local OmniRoute instance does not require auth. Restart the shell if you added it to `~/.bashrc` or `~/.zshrc`.
+</Accordion>
+
+<Accordion title="Profile not loading (-p name silently ignored)">
+  Confirm the file exists at `~/.codex/<name>.config.toml` — no `profile-` prefix. Run `ls ~/.codex/*.config.toml` to verify. The naming rule changed in Codex CLI v0.137+.
+</Accordion>
+
+<Accordion title="Session crashes near context limit">
+  Set `model_context_window` and `model_auto_compact_token_limit` explicitly for the model you're using. See the context window table above.
+</Accordion>
+
+<Accordion title="Long Codex task drops mid-run or switches accounts between turns">
+  Enable session affinity (TTL above the task length) from the dashboard and raise or disable `STREAM_IDLE_TIMEOUT_MS` and `FETCH_BODY_TIMEOUT_MS`. Grep OmniRoute logs for `Idle timeout: no data from` to confirm if the idle watchdog fired.
+</Accordion>

@@ -1,0 +1,223 @@
+---
+title: "Token Compression: Save 15–95% on Every Request"
+sidebarTitle: "Compression"
+description: "OmniRoute's 12-engine pipeline compresses tokens 15–95% transparently — RTK + Caveman stacked averages 89%. Code, URLs, and JSON are always preserved."
+---
+
+Every request that passes through OmniRoute flows through a modular compression pipeline before it reaches the upstream provider. No changes to your client, no prompt engineering — compression happens transparently on the gateway side. The pipeline is a stack of 12 composable engines that run in order, each independently toggleable and configurable per routing combo. The default stacked combo runs **RTK → Caveman**, which achieves an average of **89.2% savings** on mixed tool-log and prose content, with a range of 78.4–94.6%.
+
+## How the Math Works
+
+When RTK and Caveman both act on the same payload, their savings compound multiplicatively:
+
+```txt
+combined = 1 − (1 − RTK savings) × (1 − Caveman input savings)
+average  = 1 − (1 − 0.80) × (1 − 0.46) = 89.2%
+range    = 1 − (1 − 0.60..0.90) × (1 − 0.46) = 78.4–94.6%
+```
+
+This range applies when both engines can act on the same eligible content — repeated error lines, chatty build logs, redundant grep output. Normal, non-redundant content correctly produces near-zero savings because the preservation engine refuses to alter code blocks, URLs, JSON structures, headings, version strings, or ALL-CAPS constants.
+
+**Real example — Standard mode (Caveman):**
+
+> **Before (69 tokens):** *"The reason your React component is re-rendering is likely because you're creating a new object reference on each render cycle. When you pass an inline object as a prop, React's shallow comparison sees it as a different object every time, which triggers a re-render. I would recommend using useMemo to memoize the object."*
+>
+> **After (19 tokens):** *"New object ref each render. Inline object prop = new ref = re-render. Wrap in useMemo."*
+>
+> **Same answer. 72% fewer tokens. Zero accuracy loss.** ✅
+
+## One-Click Presets
+
+Six presets cover the most common workloads. Pick one from the dashboard at **Context & Cache → Compression** or set it per-combo.
+
+| Mode | Savings | Best for |
+|---|---|---|
+| 🪶 **Lite** | ~15% | Always-on safe default; zero semantic change |
+| 🪨 **Standard (Caveman)** | ~30% | Daily coding; filler and verbose phrasing removed |
+| ⚡ **Aggressive** | ~50% | Long tool-heavy sessions; history aging + summarization |
+| 🔥 **Ultra** | ~75% | Maximum savings; heuristic pruning + code-block thinning |
+| 🧰 **RTK** | 60–90% | Shell / test / build / git output |
+| 🔗 **Stacked (RTK → Caveman)** | **78–95%** | Mixed prompts + tool logs; default recommended |
+
+## The 12-Engine Stack
+
+Engines execute in pipeline order. Each engine is independently enabled/disabled and configurable per routing combo via the Compression Combos editor at **Dashboard → Context & Cache → Compression Combos**.
+
+<Accordion title="1 — Session-Dedup">
+  Drops content that has already appeared in an earlier turn of the same session. Uses content-addressed cross-turn deduplication (TokenMizer-inspired). No semantic transformation — purely structural removal of repeated blocks.
+</Accordion>
+
+<Accordion title="2 — CCR (Content-Compress-Retrieve)">
+  Archives large contiguous text blocks behind short `[CCR retrieve hash=<24hex> chars=N]` markers. Repeated or large blocks are sent once and referenced thereafter. The first time CCR replaces a block, it prepends a protocol instruction to the system prompt explaining the marker contract — only when the caller's `tools[]` proves it can reach `omniroute_ccr_retrieve`.
+</Accordion>
+
+<Accordion title="3 — Lite">
+  Whitespace and image-URL trimming. Techniques: collapse consecutive blank lines, remove duplicate system messages, compress verbose tool/function outputs, strip repeated instructions, shorten base64 image data URIs. Latency overhead: under 1 ms.
+</Accordion>
+
+<Accordion title="4 — RTK">
+  Smart tool-result filtering, deduplication, and truncation for command-aware output classes. Ships 49 built-in filters across categories: `git`, `test`, `build`, `package`, `shell`, `docker`, `infra`, `generic`. Preserves failures, errors, warnings, changed files, and the tail of long output. Strips ANSI sequences, progress bars, repeated lines, and non-actionable noise. Savings: 60–90% on eligible command output.
+
+  RTK upstream reports a sample 30-minute Claude Code session going from `~118,000` to `~23,900` tokens — 79.7% saved.
+</Accordion>
+
+<Accordion title="5 — Responses Tool Output">
+  Lossless-first JSON plus bounded diagnostic compression for shell, patch, search, and build outputs arriving via the Responses API (`/v1/responses`). Structured as a separate engine to handle the Responses API wire format distinctly from chat completions.
+</Accordion>
+
+<Accordion title="6 — Headroom">
+  Lossless tabular compaction of homogeneous JSON arrays (~30% reduction) via the vendored GCF (Graph Compact Format) v3.2 codec. Converts columnar `[N rows]` form where all objects share the same schema — preserves every value byte-for-byte.
+</Accordion>
+
+<Accordion title="7 — Relevance">
+  Extractive sentence scoring against the last user query. Sentences that score below the relevance threshold are removed from older assistant and context messages. Code blocks, URLs, and structured data are never scored — only prose.
+</Accordion>
+
+<Accordion title="8 — Caveman">
+  Rule-based prose compression inspired by the [Caveman](https://github.com/JuliusBrussee/caveman) project. Removes filler words ("please", "I think", "basically", "actually"), condenses verbose phrases ("in order to" → "to"), strips polite hedging, and applies 30+ regex rules tuned for coding prompts. Savings: ~65–75% on eligible output prose. Supports language-aware rule packs for `en`, `es`, `pt-BR`, `id`, `de`, `fr`, `ja`, and more.
+</Accordion>
+
+<Accordion title="9 — Aggressive">
+  Summarization plus progressive aging of old conversation turns. Recent turns (0–3) are kept verbatim; medium turns (4–8) get Lite compression; older turns (9+) get Caveman compression; very old turns (20+) are heavily summarized or dropped. Preserves `tool_use` / `tool_result` pair integrity automatically.
+</Accordion>
+
+<Accordion title="10 — LLMLingua-2">
+  ML semantic pruning via a MobileBERT ONNX token classifier (`@atjsh/llmlingua-2`, TinyBERT model ~57 MB). Compresses prose in non-system messages only; fenced code blocks are never altered. Runs in a worker thread — model inference never blocks the request event loop. Fail-opens on any error (missing optional deps, worker spawn, model load, timeout) — original text returned unchanged, never an error.
+
+  <Note>
+    LLMLingua-2 requires optional dependencies not included in the default install. To activate it: `npm install @atjsh/llmlingua-2@2.0.5 js-tiktoken`
+  </Note>
+</Accordion>
+
+<Accordion title="11 — Ultra">
+  Heuristic token pruning with an optional small-model (SLM) tier. Removes messages below a relevance threshold, compresses repetitive code examples, and uses binary-search truncation to find the optimal cut point for the model's context window. All Aggressive mode features are included.
+</Accordion>
+
+<Accordion title="12 — OmniGlyph (opt-in, experimental)">
+  Experimental context-as-image encoding for the native provider wire. Measured on Claude Fable 5 on the direct Anthropic wire. GPT 5.6 transformers remain fail-closed pending provider receipts. Available profiles: `aggressive` (default), `balanced`, `coding-safe`, `passthrough`. Opt-in only — not enabled by default.
+
+  <Warning>
+    OmniGlyph is an experimental engine. Its profile settings are a ceiling, not a floor: a per-step `preserveSystemPrompt: false` cannot re-enable a lossy lane that the profile has closed.
+  </Warning>
+</Accordion>
+
+## What Is Always Protected
+
+The preservation engine runs before any compression stage. These content types are **never modified** regardless of which engines are active:
+
+- ✅ Code blocks (fenced and inline)
+- ✅ URLs and file paths
+- ✅ JSON structures and structured data
+- ✅ Identifiers and technical tokens
+- ✅ Mathematical expressions
+- ✅ Tool and function call definitions
+- ✅ Version strings and ALL-CAPS constants
+
+## Output Styles
+
+Beyond compressing what goes *in*, three output styles shape how the model responds — injecting deterministic, cache-safe system-prompt instructions that steer the model's own writing style. Each style supports `lite`, `full`, and `ultra` intensity levels.
+
+| Style | What it does |
+|---|---|
+| **Terse prose** | Drop filler, articles, and hedging; keep technical substance exact |
+| **Less code** | YAGNI discipline: smallest working change, no unrequested scaffolding |
+| **Terse CJK (文言)** | Classical-Chinese ultra-terse style (locale-gated to `zh`) |
+
+## Adaptive Context-Budget Dial
+
+Instead of a single on/off token threshold, the adaptive dial escalates engines only as far as needed to fit the model's context window — the cheapest, most lossless engines are tried first.
+
+Three policies govern the dial:
+
+- **`reserve-output`** (default, model-aware) — reserves space for the model's max output tokens
+- **`percentage`** — targets a fixed percentage of the context window
+- **`absolute`** — targets a fixed absolute token count
+
+## Per-Request Control
+
+Send the `x-omniroute-compression` header to override the compression plan for a single request. This header has the highest precedence — it beats the routing-combo override, the active profile, auto-trigger, and the panel default.
+
+```bash
+# Force RTK compression for this request only
+curl http://localhost:20128/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-omniroute-compression: engine:rtk" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"Run the tests"}]}'
+
+# Disable compression for this request
+curl http://localhost:20128/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -H "x-omniroute-compression: off" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"Sensitive prompt"}]}'
+```
+
+| Header value | Effect |
+|---|---|
+| `off` | No compression for this request |
+| `default` | The panel-derived default profile |
+| `engine:<id>` | A single engine, e.g. `engine:rtk` or `engine:caveman` |
+| `<combo-name>` | A named compression combo, matched case-insensitively |
+
+Every response carries a `X-OmniRoute-Compression: <mode>; source=<source>` header showing exactly which plan was applied and why. The `source` field is one of: `request-header`, `routing-override`, `active-profile`, `auto-trigger`, `default`, or `off`.
+
+## Configuration
+
+<Tabs>
+  <Tab title="Dashboard">
+    Navigate to **Dashboard → Context & Cache**:
+
+    - **Caveman** — mode selection, language packs, and preview
+    - **RTK** — command-filter preview, RTK safety settings, and the 49-filter catalog
+    - **Compression Combos** — named engine pipelines assigned to routing combos
+    - **Auto-Trigger** — automatically engage compression when token count exceeds a threshold
+
+    ```bash
+    # Preview what stacked compression would do to a payload
+    curl -X POST http://localhost:20128/api/compression/preview \
+      -H "Content-Type: application/json" \
+      -d '{"mode":"stacked","messages":[{"role":"tool","content":"npm test output here"}]}'
+    ```
+  </Tab>
+  <Tab title="API">
+    ```bash
+    # Get current compression settings
+    curl http://localhost:20128/api/settings/compression
+
+    # Enable stacked mode with auto-trigger at 32K tokens
+    curl -X PUT http://localhost:20128/api/settings/compression \
+      -H "Content-Type: application/json" \
+      -d '{
+        "defaultMode": "stacked",
+        "autoTriggerMode": "stacked",
+        "autoTriggerTokens": 32000
+      }'
+
+    # Test RTK compression on a specific command output
+    curl -X POST http://localhost:20128/api/context/rtk/test \
+      -H "Content-Type: application/json" \
+      -d '{"command":"npm test","text":"FAIL tests/example.test.ts\nAssertionError: expected true"}'
+
+    # List the 49 built-in RTK filter packs
+    curl http://localhost:20128/api/context/rtk/filters
+    ```
+  </Tab>
+  <Tab title="Per-Combo Override">
+    Assign a compression combo to a specific routing combo so different workloads use different pipelines:
+
+    ```json
+    {
+      "id": "coding-combo",
+      "strategy": "priority",
+      "compressionOverride": {
+        "mode": "aggressive",
+        "stackedPipelines": ["rtk", "caveman"],
+        "preserveToolDefinitions": true
+      }
+    }
+    ```
+
+    This lets you use stacked compression on free/coding combos while keeping lite mode on paid subscriptions — configured at **Dashboard → Context & Cache → Compression Combos → Assign to routing**.
+  </Tab>
+</Tabs>

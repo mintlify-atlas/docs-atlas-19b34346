@@ -1,0 +1,94 @@
+{
+  "projectType": "saas",
+  "projectName": "OmniRoute",
+  "projectDescription": "A free, self-hosted AI gateway that unifies 350+ providers and 1,200+ models behind one OpenAI-compatible endpoint, with quota-aware auto-fallback, 12-engine token compression, and full CLI/MCP/A2A support.",
+  "theme": "luma",
+  "primaryColor": "#e54d5e",
+  "lightColor": "#0b0e14",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Docs",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/providers",
+              "features/combos-routing",
+              "features/compression",
+              "features/free-tiers"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/claude-code",
+              "integrations/codex",
+              "integrations/cursor",
+              "integrations/mcp",
+              "integrations/a2a"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/docker",
+              "deployment/environment",
+              "deployment/remote-mode"
+            ]
+          },
+          {
+            "group": "Reference",
+            "pages": [
+              "reference/api",
+              "reference/cli",
+              "reference/troubleshooting"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "One OpenAI-compatible endpoint routing to 350+ AI providers",
+    "90+ free-tier providers — ~1.51B free tokens/month with zero config",
+    "19 routing strategies including priority, weighted, round-robin, and LKGP",
+    "12-engine token compression pipeline saving 15–95% of tokens (RTK + Caveman)",
+    "Quota-aware auto-fallback with 3-layer resilience (circuit breaker, cooldown, model lockout)",
+    "MCP server with 110 tools for IDE and agent integrations (Claude Desktop, Cursor)",
+    "A2A (Agent-to-Agent) protocol via JSON-RPC 2.0 + SSE",
+    "Full CLI with 80+ commands, interactive TUI chat, and remote mode",
+    "Desktop app (Electron), PWA, Docker, and Termux support",
+    "Semantic cache, cost tracking, webhooks, and memory/skills system"
+  ],
+  "publicApiSurface": [
+    "POST /v1/chat/completions",
+    "POST /v1/responses",
+    "GET /v1/models",
+    "POST /v1/embeddings",
+    "POST /v1/images/generations",
+    "POST /v1/audio/speech",
+    "POST /v1/audio/transcriptions",
+    "GET/POST /api/mcp/stream",
+    "GET/POST /api/mcp/sse",
+    "GET /.well-known/agent.json",
+    "POST /api/webhooks",
+    "omniroute (CLI — start gateway + dashboard)",
+    "omniroute chat (interactive TUI)",
+    "omniroute setup (first-run wizard)",
+    "omniroute doctor (diagnose providers/ports)",
+    "omniroute connect <host> (remote mode)",
+    "omniroute models list",
+    "omniroute combo list",
+    "omniroute setup-codex / setup-claude / setup-cursor (auto-configure CLIs)"
+  ]
+}

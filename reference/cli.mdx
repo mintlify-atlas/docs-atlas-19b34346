@@ -1,0 +1,337 @@
+---
+title: "OmniRoute CLI Reference: All 80+ Commands"
+sidebarTitle: "CLI Reference"
+description: "Complete CLI reference for OmniRoute — gateway control, provider management, combo routing, health diagnostics, token management, and auto-configure for every major coding tool."
+---
+
+The `omniroute` binary is the primary interface for running and managing the OmniRoute gateway. It covers everything from starting the server and connecting providers to managing API tokens, viewing logs, and auto-configuring every major AI coding tool to point at your gateway. All commands that interact with providers or usage data require the server to be running unless noted otherwise.
+
+## Core Gateway Commands
+
+<CardGroup cols={2}>
+  <Card title="omniroute" icon="play">
+    Start the gateway and open the dashboard at `http://localhost:20128`. Combines the API and UI on a single port.
+  </Card>
+  <Card title="omniroute setup" icon="wand-magic-sparkles">
+    Interactive first-run wizard. Configures secrets, admin password, and optionally adds the first provider.
+  </Card>
+  <Card title="omniroute doctor" icon="stethoscope">
+    Diagnose configuration, database, port availability, Node.js runtime, native binaries, memory, and server liveness. Exits non-zero on any failed check.
+  </Card>
+  <Card title="omniroute connect \<host\>" icon="plug">
+    Connect the local CLI to a remote OmniRoute instance. Mints a scoped `oma_live_…` access token and saves a named context.
+  </Card>
+</CardGroup>
+
+```bash
+omniroute                        # Start server + open browser
+omniroute --no-open              # Start without opening browser
+omniroute --port 8080            # Override port (default 20128)
+omniroute --version              # Print installed version
+omniroute --help                 # List all commands
+```
+
+### Setup Options
+
+```bash
+omniroute setup                            # Interactive wizard
+omniroute setup --non-interactive          # CI/automation mode (reads env + flags)
+omniroute setup --password '<value>'       # Set admin password directly
+omniroute setup \
+  --add-provider \
+  --provider openai \
+  --api-key '<value>' \
+  --test-provider                          # Add and test a provider in one shot
+```
+
+---
+
+## Interactive TUI Chat
+
+```bash
+omniroute chat
+```
+
+Opens a full-screen terminal chat client connected to your gateway. Supports slash commands during a session:
+
+| Command | Description |
+|---|---|
+| `/model <id>` | Switch the active model mid-conversation |
+| `/combo <id>` | Switch to a routing combo |
+| `/skill <name>` | Invoke an installed skill |
+| `/memory` | View and manage conversation memory |
+
+---
+
+## Diagnostics
+
+```bash
+omniroute doctor                        # Full diagnosis (config, DB, ports, runtime)
+omniroute doctor --json                 # Machine-readable JSON output
+omniroute doctor --no-liveness          # Skip HTTP health probe
+omniroute doctor --host 0.0.0.0        # Override liveness check host
+omniroute doctor --liveness-url <url>  # Full health endpoint URL override
+
+omniroute health                        # Detailed gateway health (breakers, cache, memory)
+omniroute resilience                    # Circuit breaker and cooldown state
+omniroute status                        # Comprehensive runtime status
+```
+
+The `doctor` check covers eight areas: Config, Database, Storage/encryption, Port availability, Node runtime, Native binary (`better-sqlite3`), Memory, and Server liveness.
+
+---
+
+## Provider Management
+
+<Steps>
+  <Step title="Browse available providers">
+    ```bash
+    omniroute providers available                         # Full provider catalog
+    omniroute providers available --search openai         # Filter by name/id/alias
+    omniroute providers available --category api-key      # Filter by category
+    omniroute providers available --json                  # Machine-readable JSON
+    ```
+  </Step>
+  <Step title="List and test configured providers">
+    ```bash
+    omniroute providers list                              # Configured connections
+    omniroute providers list --json
+
+    omniroute providers test <id|name>                    # Test one connection
+    omniroute providers test-all                          # Test every active connection
+    omniroute providers validate                          # Local structural validation (no server)
+    ```
+  </Step>
+  <Step title="Add and manage connections">
+    ```bash
+    omniroute providers add <provider> --credential-env PROVIDER_KEY
+    omniroute providers import ./providers.json --dry-run --json
+    omniroute providers auth <provider>                   # OAuth flow
+    omniroute providers edit <id|name> --default-model <model>
+    omniroute providers remove <id|name> --yes
+    ```
+  </Step>
+</Steps>
+
+```bash
+omniroute oauth list                                      # List OAuth connections
+omniroute keys list                                       # List API key connections
+omniroute models list                                     # List all available models
+omniroute models list --search claude                     # Filter by name
+omniroute models list --json
+```
+
+---
+
+## Model & Combo Management
+
+Combos are named routing strategies that combine multiple providers with fallback rules, cost optimization, and load balancing.
+
+```bash
+omniroute combo list               # List all combos
+omniroute combo create             # Create a new combo
+omniroute combo use <id>           # Set the default combo
+omniroute combo switch <id>        # Alias for combo use
+omniroute combo delete <id>        # Delete a combo
+```
+
+---
+
+## Token & Context Management
+
+API tokens (`oma_live_…`) authorize remote CLI and management API access. Contexts store named remote connections.
+
+<Tabs>
+  <Tab title="Tokens">
+    ```bash
+    omniroute tokens create --name <name> --scope <scope>
+    # scope: read | write | admin
+
+    omniroute tokens list              # List all access tokens
+    omniroute tokens revoke <id>       # Revoke a token
+    ```
+  </Tab>
+  <Tab title="Contexts">
+    ```bash
+    omniroute contexts list            # List saved remote contexts
+    omniroute contexts use <name>      # Switch active context
+    ```
+  </Tab>
+  <Tab title="API Keys">
+    ```bash
+    omniroute keys add                 # Create an inference API key (sk-…)
+    omniroute keys list                # List all inference API keys
+    omniroute keys remove <id>         # Delete an inference API key
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Usage, Quota & Logs
+
+```bash
+omniroute usage                        # View usage statistics
+omniroute quota                        # Check provider quota usage
+omniroute logs                         # Stream request logs
+omniroute logs --json                  # JSON log output
+omniroute logs --search <term>         # Filter logs
+omniroute logs --follow                # Tail logs in real time
+omniroute cache                        # Cache status
+omniroute cache clear                  # Clear semantic + signature caches
+```
+
+---
+
+## Recovery & Credential Export
+
+```bash
+omniroute reset-password               # Reset admin password
+omniroute reset-encrypted-columns      # Preview credential reset (dry-run)
+omniroute reset-encrypted-columns --force  # Null out encrypted credentials in SQLite
+
+omniroute backup                       # Snapshot config + DB
+omniroute restore                      # Restore from a previous snapshot
+
+# Export decrypted credentials (requires STORAGE_ENCRYPTION_KEY)
+omniroute auth export --force                         # All connections to stdout as JSON
+omniroute auth export --force --id <id>               # Single connection
+omniroute auth export --force --format env            # OMNIROUTE_<PROVIDER>_<FIELD>=<value>
+omniroute auth export --force --out creds.json        # Write to file (chmod 0600)
+```
+
+<Warning>
+  `auth export --force` prints **plaintext** API keys, OAuth tokens, and refresh tokens. A warning banner always prints before any plaintext is emitted. Handle output like a password file.
+</Warning>
+
+---
+
+## Tool Auto-Configure (`setup-*`)
+
+Each `setup-*` command reads the live model catalog from a running OmniRoute and writes the target tool's config file automatically. No manual editing required.
+
+```bash
+omniroute setup-claude       # Configure Claude Code (~/.claude/settings.json)
+omniroute setup-codex        # Configure OpenAI Codex CLI (~/.codex/config.toml)
+omniroute setup-cursor       # Configure Cursor
+omniroute setup-cline        # Configure Cline
+omniroute setup-opencode     # Configure OpenCode
+omniroute setup-kilo         # Configure KiloCode
+omniroute setup-continue     # Configure Continue (~/.continue/config.yaml)
+omniroute setup-roo          # Configure Roo Code
+omniroute setup-goose        # Configure Goose
+omniroute setup-aider        # Configure Aider
+omniroute setup-qwen         # Configure Qwen Code
+omniroute setup-crush        # Configure Crush
+```
+
+### Common Flags
+
+All `setup-*` commands accept:
+
+| Flag | Description |
+|---|---|
+| `--remote <url>` | Configure a local tool to point at a remote OmniRoute instance |
+| `--api-key <key>` | API key for the remote instance |
+| `--dry-run` | Preview the generated config without writing any files |
+| `--port <n>` | Override the gateway port |
+| `--model <id>` | Manually specify the model id (for tools without model auto-discovery) |
+| `--yes` | Non-interactive mode — skip confirmation prompts |
+| `--allow-container-write` | Allow writing config inside a container (normally blocked) |
+
+<Note>
+  Running `setup-*` inside an OmniRoute Docker container writes into the container's own filesystem, which no host CLI can read. OmniRoute detects this and exits with code 2 and instructions. Install the CLI on the host and use `--remote` to configure it against the container, or bind-mount the config directories and set `CLI_CONFIG_HOME`.
+</Note>
+
+### Direct Tool Launchers
+
+```bash
+omniroute run claude         # Launch Claude Code with OmniRoute env injected
+omniroute run codex          # Launch Codex CLI
+omniroute run aider          # Launch Aider
+omniroute run goose          # Launch Goose
+omniroute run opencode       # Launch OpenCode
+omniroute run gemini         # Launch Google Gemini CLI (via /v1beta surface)
+omniroute run qwen           # Launch Qwen Code
+```
+
+---
+
+## MCP & Tunnel Commands
+
+```bash
+omniroute --mcp                        # Start as MCP stdio server (for IDE integration)
+omniroute mcp status                   # MCP server status
+omniroute mcp restart                  # Restart MCP server
+
+omniroute a2a status                   # A2A server status
+omniroute a2a card                     # Print the A2A agent card
+
+omniroute tunnel list                  # List configured tunnels
+omniroute tunnel create                # Create a Cloudflare/Tailscale/ngrok tunnel
+omniroute tunnel stop                  # Stop an active tunnel
+```
+
+---
+
+## Global Flags
+
+These flags apply to all commands that communicate with a gateway:
+
+| Flag | Description |
+|---|---|
+| `--port <n>` | Override the gateway port (default `20128`) |
+| `--remote <url>` | Target a remote OmniRoute instance instead of localhost |
+| `--api-key <key>` | API key or access token for remote authentication |
+| `--no-open` | Do not open the browser automatically on start |
+| `--non-interactive` | CI mode — no prompts, reads from env and flags |
+| `--json` | Machine-readable JSON output (doctor, providers, models, etc.) |
+| `--help`, `-h` | Show help for the current command |
+| `--version`, `-v` | Print the installed version |
+
+---
+
+## Quick Reference by Task
+
+<Accordion title="First-time setup on a new machine">
+  ```bash
+  npm install -g omniroute
+  omniroute setup                     # Wizard: sets password + first provider
+  omniroute                           # Start the gateway
+  omniroute setup-claude              # Configure Claude Code
+  omniroute setup-codex               # Configure Codex CLI
+  ```
+</Accordion>
+
+<Accordion title="Connect a laptop to a remote server">
+  ```bash
+  # On the remote server, create an access token first:
+  # Dashboard → Settings → Access Tokens → Create (admin scope)
+
+  # On your laptop:
+  omniroute connect https://your-server.example
+  # Prompts for the access token, saves a context named after the host
+
+  omniroute contexts list             # Verify context was saved
+  omniroute providers list            # Lists remote providers
+  omniroute setup-claude --remote https://your-server.example --api-key oma_live_...
+  ```
+</Accordion>
+
+<Accordion title="Diagnose a provider connection problem">
+  ```bash
+  omniroute doctor                    # Full system check
+  omniroute providers test <id>       # Test one connection
+  omniroute health                    # Circuit breaker and cache state
+  omniroute logs --follow             # Watch live request logs
+  ```
+</Accordion>
+
+<Accordion title="Rotate all CLI configs after changing gateway URL">
+  ```bash
+  omniroute setup-claude --remote https://new-host.example --api-key sk-...
+  omniroute setup-codex  --remote https://new-host.example --api-key sk-...
+  omniroute setup-cline  --remote https://new-host.example --api-key sk-... --model auto
+  # Repeat for each tool in use
+  ```
+</Accordion>

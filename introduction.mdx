@@ -1,0 +1,143 @@
+---
+title: "OmniRoute: Free AI Gateway for 350+ Providers"
+sidebarTitle: "Introduction"
+description: "OmniRoute is a self-hosted AI gateway with one OpenAI-compatible endpoint, 350+ providers, 90+ free tiers, and quota-aware routing with token compression."
+---
+
+OmniRoute is a free, self-hosted AI gateway that collapses 350+ AI providers — OpenAI, Anthropic, Gemini, xAI, DeepSeek, Mistral, Qwen, and hundreds more — behind a single OpenAI-compatible endpoint at `http://localhost:20128/v1`. Instead of juggling a dozen SDKs, rotating API keys by hand, and debugging rate-limit failures mid-session, you point every coding tool and CLI agent at OmniRoute once, and it handles routing, fallback, compression, and quota tracking automatically.
+
+## Zero-Config Start
+
+A fresh install responds immediately — no API key, no signup, no configuration file. The `auto` model is pre-wired to keyless free providers so the gateway answers on the first request:
+
+```bash
+npm install -g omniroute
+omniroute
+# then send your first request:
+curl http://localhost:20128/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model":"auto","messages":[{"role":"user","content":"Hello!"}]}'
+```
+
+Dashboard opens at `http://localhost:20128`. API base URL is `http://localhost:20128/v1`.
+
+## Key Numbers
+
+OmniRoute catalogs **455 free-tier entries across 40 recurring pool keys** and computes a deduplicated monthly budget from the 20 pools with a published positive token count. The headline figures from the live catalog:
+
+| Metric | Value |
+|---|---|
+| Registered providers | 353 |
+| Unique chat model IDs | 1,312 |
+| Catalog-marked free providers | 154 |
+| Free tokens / month (steady) | ~1.51B |
+| First-month with signup credits | ~2.13B |
+| Routing strategies | 19 |
+| Compression engines | 12 |
+| Compatible CLI/agent tools | 35+ |
+
+## The `auto` Model and Its Variants
+
+Set `model: auto` and OmniRoute builds a virtual combo from your connected providers, scored live on 15 factors including health, quota, cost, latency, and task fit. Specialised variants let you tune the optimisation axis without creating a manual combo:
+
+| Model ID | What it optimises for |
+|---|---|
+| `auto` | Balanced default — sticks to your last good provider (LKGP) |
+| `auto/coding` | Quality-first weights for code generation |
+| `auto/fast` | Lowest latency first |
+| `auto/cheap` | Cheapest per-token first |
+| `auto/offline` | Most quota / rate-limit headroom first |
+| `auto/smart` | Quality-first + 10% exploration to discover better models |
+
+## What Sets OmniRoute Apart
+
+<CardGroup cols={2}>
+  <Card title="19 Routing Strategies" icon="shuffle">
+    From `priority` and `round-robin` to `fusion` (fan-out + judge) and `pipeline` (chained steps). Mix strategies per combo step. The `auto` strategy scores 15 live factors on every request.
+  </Card>
+  <Card title="12-Engine Compression" icon="compress">
+    RTK → Caveman stacked compression saves 78–95% on tool-heavy sessions. Engines include Session-Dedup, CCR, LLMLingua-2 (MobileBERT ONNX), OmniGlyph, and more. Code blocks and structured data are always byte-preserved.
+  </Card>
+  <Card title="~1.51B Free Tokens/Month" icon="coins">
+    Deduplicated across 40 recurring pool keys. Includes Mistral 1B, LLM7 150M, Nara 150M, Gemini 60M, and 56 recurring/keyless free-forever providers. Live used/remaining visible at `/dashboard/free-tiers`.
+  </Card>
+  <Card title="MCP & A2A Support" icon="plug">
+    110 MCP tools across 33 scopes served over stdio, HTTP stream, and SSE. Full A2A v0.3 (JSON-RPC 2.0 + SSE) with 6 skills. Any capable agent can drive OmniRoute's routing, providers, and compression autonomously.
+  </Card>
+</CardGroup>
+
+## 3-Layer Resilience Architecture
+
+OmniRoute never fails silently on a provider error. Three independent self-healing layers handle failures at different granularities:
+
+<Accordion title="Layer 1 — Provider Circuit Breaker (whole provider)">
+Trips only on 408/5xx responses. Thresholds are `10×` for OAuth, `15×` for API keys, and `2×` for local providers. Resets into a HALF-OPEN probe after 60s / 30s / 15s respectively. While OPEN, the combo reroutes to the next healthy provider automatically.
+</Accordion>
+
+<Accordion title="Layer 2 — Connection Cooldown (one key/account)">
+Base cooldown of 5s (OAuth) or 3s (API key) with exponential `×2` backoff and an anti-thundering-herd guard. 429 responses honour `Retry-After`. A single cooling key is skipped while sibling keys keep serving traffic — no full provider blackout from a single exhausted account.
+</Accordion>
+
+<Accordion title="Layer 3 — Model Lockout (one model)">
+Per-model 429s, local 404s, or mode-denied responses lock just that model — never the full connection. Terminal states such as banned, expired, or credits-exhausted accounts are flagged for operator action rather than treated as transient cooldowns.
+</Accordion>
+
+## Where OmniRoute Runs
+
+OmniRoute runs on every major platform without modification:
+
+| Platform | Install | Notes |
+|---|---|---|
+| **npm (global)** | `npm install -g omniroute` | One command, any OS |
+| **Docker** | `docker run … diegosouzapw/omniroute` | Multi-arch AMD64 + ARM64 |
+| **Desktop (Electron)** | `npm run electron:build` | Native window + system tray — Windows / macOS / Linux |
+| **Android (Termux)** | `pkg install nodejs && npx -y omniroute` | Runs on your phone, 24/7, no root |
+| **PWA** | "Add to Home Screen" | Fullscreen, offline, installable from any browser |
+
+## Compatible Coding Tools
+
+OmniRoute exposes an OpenAI-compatible endpoint, so every tool that accepts a custom base URL works out of the box:
+
+**Claude Code · OpenAI Codex · Cursor · Cline · GitHub Copilot · OpenCode · Kilo Code · Aider · Goose · Continue · Windsurf · Factory Droid · Zoo Code · Grok Build · Warp AI · Open Interpreter** — and any other OpenAI-compatible tool.
+
+One-command launch for supported CLIs, no config files written:
+
+```bash
+omniroute run claude   --model auto
+omniroute run codex    --model auto
+omniroute run opencode --model auto
+```
+
+Or let OmniRoute write each tool's own config file:
+
+```bash
+omniroute configure codex   # writes ~/.codex/*.config.toml
+omniroute configure claude  # writes ~/.claude/profiles/<name>/settings.json
+```
+
+## Explore the Docs
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Send your first request in under 3 minutes. Install, connect a free provider, and configure your coding tool.
+  </Card>
+  <Card title="Providers & Free Tiers" icon="database" href="/features/providers">
+    Full catalog of 353 providers, free-tier methodology, and the live `/dashboard/free-tiers` budget breakdown.
+  </Card>
+  <Card title="Combos & Routing" icon="route" href="/features/combos-routing">
+    All 19 routing strategies, how to build custom combos, and the auto-combo 15-factor scoring engine.
+  </Card>
+  <Card title="Token Compression" icon="file-zip" href="/features/compression">
+    The 12-engine compression pipeline, stacked savings math, preset modes, and per-request control headers.
+  </Card>
+  <Card title="MCP Integration" icon="puzzle" href="/integrations/mcp">
+    110 MCP tools over stdio, HTTP stream, and SSE. Connect Claude Desktop, Cursor, or any MCP client in one command.
+  </Card>
+  <Card title="API Reference" icon="code" href="/reference/api">
+    All endpoints — chat completions, Responses API, embeddings, images, audio, OCR — with examples and headers.
+  </Card>
+</CardGroup>
+
+<Note>
+  OmniRoute is MIT-licensed and fully self-hosted. Your prompts travel directly from OmniRoute to the upstream provider you choose — there is no hosted prompt-processing hop. Credentials are encrypted at rest with AES-256-GCM. Telemetry is disabled by default.
+</Note>

@@ -1,0 +1,261 @@
+---
+title: "Install OmniRoute: npm, Docker, Bun, Source & More"
+sidebarTitle: "Installation"
+description: "Install OmniRoute via npm, Docker, pnpm, Bun, from source, Arch Linux AUR, or Nix. Requires Node.js 22.22.2+ or 24+."
+---
+
+OmniRoute supports seven installation methods across all major operating systems and runtimes. After installation, the dashboard is available at `http://localhost:20128` and the API base URL is `http://localhost:20128/v1`. Pick the method that fits your environment.
+
+## Node.js Version Requirement
+
+OmniRoute requires Node.js `>=22.22.2 <23` or `>=24.0.0 <27`. Node.js 22 LTS and Node.js 24 LTS are the recommended runtimes. Running outside these ranges will result in a startup error.
+
+<Tabs>
+  <Tab title="npm">
+    ## npm (Recommended)
+
+    The simplest install for local development and personal use. Works on macOS, Linux, and Windows.
+
+    ```bash
+    npm install -g omniroute
+    ```
+
+    Start the gateway:
+
+    ```bash
+    omniroute
+    ```
+
+    Dashboard at `http://localhost:20128` · API at `http://localhost:20128/v1`.
+
+    <Note>
+      npm warnings like `ERESOLVE` or peer-dependency notices during install are harmless — OmniRoute resolves them internally. You can safely ignore them.
+    </Note>
+
+    **CI and headless installs** — skip the post-install native warm-up to speed up automated pipelines:
+
+    ```bash
+    OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g omniroute
+    # CI=1 also skips the warm-up automatically
+    ```
+
+    The native SQLite engine (`better-sqlite3`) is an optional dependency. When no prebuilt binary matches your platform, OmniRoute falls back transparently to `node:sqlite` (Node.js 22+) or the bundled `sql.js` WASM — no build tools required.
+  </Tab>
+
+  <Tab title="Docker">
+    ## Docker
+
+    Multi-arch image supporting `linux/amd64` and `linux/arm64` (Apple Silicon, AWS Graviton, Raspberry Pi). Docker selects the matching architecture automatically.
+
+    **Basic run:**
+
+    ```bash
+    docker run -d \
+      --name omniroute \
+      --restart unless-stopped \
+      --stop-timeout 40 \
+      -p 127.0.0.1:20128:20128 \
+      -v omniroute-data:/app/data \
+      diegosouzapw/omniroute:latest
+    ```
+
+    `:latest` tracks the highest published stable SemVer. It does **not** track git `main`. Pin `:X.Y.Z` for GitOps deployments.
+
+    ### Runtime RAM for Coding Agents
+
+    The default image sets `OMNIROUTE_MEMORY_MB=1024` — sufficient for the dashboard and light chat. Coding agents that call `POST /v1/responses` (Claude Code, Codex, Grok Build) hold large in-memory graphs during compression and can abort the V8 heap without a larger allocation. Size the container memory **above** the heap value — native buffers, SQLite, and compression intermediates live outside V8.
+
+    | Workload | `OMNIROUTE_MEMORY_MB` | Container `--memory` |
+    |---|---|---|
+    | Dashboard / light chat | `1024` (image default) | ≥2g |
+    | One coding agent | `8192` | ≥10g |
+    | Two concurrent long `/v1/responses` | `10240`–`12288` | ≥12–16g |
+
+    **Coding-agent example:**
+
+    ```bash
+    docker run -d \
+      --name omniroute \
+      --restart unless-stopped \
+      --stop-timeout 40 \
+      -e OMNIROUTE_MEMORY_MB=8192 \
+      --memory=10g \
+      -p 127.0.0.1:20128:20128 \
+      -v omniroute-data:/app/data \
+      diegosouzapw/omniroute:latest
+    ```
+
+    <Warning>
+      Always mount a named volume (`-v omniroute-data:/app/data`) to persist your database, API keys, and provider configurations across container restarts. Always keep `--stop-timeout 40` so OmniRoute can checkpoint the SQLite WAL before shutdown.
+    </Warning>
+
+    ### Docker Compose
+
+    ```bash
+    # Base profile — headless server, no bundled CLI tools
+    docker compose --profile base up -d
+
+    # CLI profile — includes Claude Code, Codex, OpenClaw bundled
+    docker compose --profile cli up -d
+    ```
+
+    For HTTPS with auto-TLS via Caddy, production Compose with Redis, and Kubernetes probe guidance, see the [Docker deployment guide](/deployment/docker).
+  </Tab>
+
+  <Tab title="pnpm">
+    ## pnpm
+
+    pnpm's content-addressed store and hard links make it the fastest global install method on machines with multiple projects.
+
+    ```bash
+    pnpm add -g omniroute@latest \
+      --allow-build=better-sqlite3 \
+      --allow-build=@swc/core
+    omniroute
+    ```
+
+    The `--allow-build` flags are required to enable native build scripts for `better-sqlite3` and `@swc/core`. The `pnpm approve-builds -g` command is not supported for global installs on pnpm v11.
+
+    <Tip>
+      pnpm is the recommended install method for users who want the fastest install times. The content-addressed store means the large dependency tree is stored once even across multiple Node.js projects.
+    </Tip>
+  </Tab>
+
+  <Tab title="Bun">
+    ## Bun
+
+    OmniRoute includes first-class Bun runtime support with automatic detection:
+
+    - **Built-in `bun:sqlite`** — OmniRoute uses Bun's native SQLite driver when running under Bun, falling back to `better-sqlite3` on Node.js or `sql.js` WASM.
+    - **Automatic bundler selection** — `bun run dev` and `bun run build` automatically detect Bun and disable Turbopack in favour of Webpack to prevent native V8 binding incompatibilities.
+
+    **Global install:**
+
+    ```bash
+    bun install -g omniroute
+    ```
+
+    **Run from source with Bun:**
+
+    ```bash
+    bun install
+    bun run dev
+    ```
+
+    **Docker with native Bun runtime:**
+
+    ```bash
+    docker build -f Dockerfile.bun -t omniroute:bun .
+    ```
+  </Tab>
+
+  <Tab title="From Source">
+    ## From Source
+
+    For contributors, developers who want to modify OmniRoute, or anyone who needs the very latest unreleased changes.
+
+    ```bash
+    git clone https://github.com/diegosouzapw/OmniRoute.git
+    cd OmniRoute
+    cp .env.example .env
+    npm install
+    PORT=20128 npm run dev
+    ```
+
+    The `npm install` step auto-generates `.env` from `.env.example` on first run. Subsequent installs will not overwrite an existing `.env`, so your customisations are preserved. To re-seed from the example, delete `.env` before running again.
+
+    **Split-port mode** (separate dashboard and API ports for reverse proxies):
+
+    ```bash
+    PORT=20128 DASHBOARD_PORT=20129 NEXT_PUBLIC_BASE_URL=http://localhost:20129 npm run dev
+    # API:       http://localhost:20128/v1
+    # Dashboard: http://localhost:20129
+    ```
+
+    <Note>
+      On Windows, OmniRoute uses `%APPDATA%\omniroute` when the legacy `%USERPROFILE%\.omniroute` directory is not present. Set `DATA_DIR` to choose a different data-directory location.
+    </Note>
+  </Tab>
+
+  <Tab title="Arch Linux (AUR)">
+    ## Arch Linux (AUR)
+
+    The `omniroute-bin` AUR package installs OmniRoute and provides a systemd user service for automatic startup.
+
+    ```bash
+    yay -S omniroute-bin
+    systemctl --user enable --now omniroute.service
+    ```
+
+    The service starts OmniRoute automatically on login and restarts it if it exits unexpectedly.
+  </Tab>
+
+  <Tab title="Nix (Flake)">
+    ## Nix (Flake)
+
+    For Nix users with flakes enabled:
+
+    ```bash
+    nix develop
+    npm run dev
+    ```
+
+    Or with devbox:
+
+    ```bash
+    devbox run npm run dev
+    ```
+  </Tab>
+</Tabs>
+
+## Environment Variables for First Run
+
+OmniRoute requires three environment variables before it is production-ready. On a fresh `npm install -g omniroute`, the post-install script generates a `.env` file in `~/.omniroute/` with safe defaults. For Docker and headless deployments, set them explicitly.
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `JWT_SECRET` | Signs and verifies all authenticated session cookies. Generate with `openssl rand -base64 48`. | Auto-generated on first boot |
+| `API_KEY_SECRET` | Encrypts API key values stored at rest in SQLite. Generate with `openssl rand -hex 32`. | Auto-generated on first boot |
+| `INITIAL_PASSWORD` | Sets the initial dashboard login password. **Must be changed before exposing OmniRoute to a network.** | `CHANGEME` |
+
+<Warning>
+  The default `INITIAL_PASSWORD=CHANGEME` is intentionally insecure and only appropriate for local development on a loopback interface. Change it from **Dashboard → Settings → Security** after first login, or set a strong value before starting OmniRoute.
+</Warning>
+
+After first login you can rotate the password at any time from the dashboard. The `INITIAL_PASSWORD` environment variable is only read during the bootstrap phase.
+
+## Verifying the Installation
+
+Once OmniRoute is running, confirm the gateway is healthy:
+
+```bash
+# Health check (no auth required)
+curl http://localhost:20128/healthz
+
+# List available models (requires your OmniRoute API key)
+curl http://localhost:20128/v1/models \
+  -H "Authorization: Bearer YOUR_KEY"
+```
+
+You can also run the built-in diagnostics tool:
+
+```bash
+omniroute doctor
+omniroute doctor --json   # machine-readable output for CI
+```
+
+`omniroute doctor` checks provider connectivity, port availability, and native dependency health without starting the full server.
+
+## Uninstalling
+
+| Command | Action |
+|---|---|
+| `npm run uninstall` | Removes the application but keeps your database and configuration in `~/.omniroute`. |
+| `npm run uninstall:full` | Removes the application **and permanently erases** all configuration, API keys, and databases. |
+
+For Docker, stop and remove the container then optionally delete the named volume:
+
+```bash
+docker stop omniroute && docker rm omniroute
+docker volume rm omniroute-data   # ⚠️ permanently deletes all data
+```

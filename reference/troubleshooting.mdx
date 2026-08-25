@@ -1,0 +1,391 @@
+---
+title: "OmniRoute Troubleshooting Guide: Common Issues"
+sidebarTitle: "Troubleshooting"
+description: "Fix common OmniRoute issues — install warnings, port conflicts, Docker memory limits, provider 429s, Claude Code connection errors, MCP access, and SQLite startup failures."
+---
+
+This guide covers the most common problems encountered when installing, running, or integrating OmniRoute. Each section describes the symptom, root cause, and exact steps to resolve it. For issues not listed here, run `omniroute doctor` first — it automatically checks configuration, database health, port availability, native binaries, and server liveness, and exits non-zero if anything is wrong.
+
+## Quick Diagnostic
+
+Before diving into a specific issue, these three commands resolve 80% of problems:
+
+```bash
+omniroute doctor          # Full automated diagnosis
+omniroute health          # Gateway health, circuit breakers, cache
+curl http://localhost:20128/healthz   # Raw health check from the API
+```
+
+---
+
+## Installation Issues
+
+<Accordion title="npm ERESOLVE or peer-dep warnings during install">
+  **Symptom:** Running `npm install -g omniroute` prints a wall of `npm warn ERESOLVE`, peer-dependency notices, or `deprecated` messages.
+
+  **Cause:** These come from stale peer-dependency ranges in third-party packages OmniRoute does not control. Two common warnings:
+  - `marked-terminal` wants `marked >=1 <16` but finds `marked@18` — works fine in practice; the upstream range is stale.
+  - `deprecated prebuild-install@7.1.3` — the native binary fetch helper for `tls-client-node`.
+
+  **These warnings are harmless.** The install succeeded if you see `added <N> packages` in the output. No action is needed.
+
+  If npm refuses to complete the install with a hard error (not a warning), add `--legacy-peer-deps`:
+
+  ```bash
+  npm install -g omniroute --legacy-peer-deps
+  ```
+</Accordion>
+
+<Accordion title="npm v11+: better-sqlite3 not installed (Cannot find module)">
+  **Symptom:** Server crashes on startup with `Cannot find module 'better-sqlite3'`, or `npm ls better-sqlite3` shows empty.
+
+  **Cause:** npm v11 (shipped with Node.js 24+) blocks install scripts for optional dependencies by default. `better-sqlite3` is in `optionalDependencies` and requires native compilation, so npm silently skips it.
+
+  **Fix:**
+
+  ```bash
+  # Option 1 — approve the install scripts
+  npm approve-scripts better-sqlite3
+  npm install
+
+  # Option 2 — install prebuilt manually
+  npm pack better-sqlite3@13.0.1
+  tar -xzf better-sqlite3-*.tgz -C node_modules
+  mv node_modules/package node_modules/better-sqlite3
+  rm better-sqlite3-*.tgz
+
+  # Verify:
+  node -e "require('better-sqlite3')(':memory:').close(); console.log('OK')"
+  ```
+</Accordion>
+
+<Accordion title="macOS dlopen / 'slice is not valid mach-o file'">
+  **Symptom:** Server fails immediately on startup with a `dlopen` error containing `slice is not valid mach-o file`.
+
+  **Cause:** After a global `npm install -g omniroute`, the `better-sqlite3` native binary may have been compiled for a different architecture or Node.js ABI than what is running locally. Common on both Apple Silicon and Intel Macs.
+
+  **Fix — rebuild for your local environment:**
+
+  ```bash
+  cd $(npm root -g)/omniroute/app
+  npm rebuild better-sqlite3
+  omniroute
+  ```
+
+  This recompiles the native binding against your local Node.js version and CPU architecture. No Node.js downgrade required.
+</Accordion>
+
+---
+
+## Server Startup Issues
+
+<Accordion title="Port 20128 already in use">
+  **Symptom:** OmniRoute fails to start with `EADDRINUSE: address already in use :::20128` or similar.
+
+  **Cause:** Another process (a previous OmniRoute instance, another application, or a Docker container) is already bound to port 20128.
+
+  **Fix:**
+
+  ```bash
+  # Find and kill the existing process
+  lsof -ti:20128 | xargs kill -9
+
+  # Or run OmniRoute on a different port
+  PORT=20200 omniroute
+
+  # In Docker, remap the host port
+  docker run -p 20200:20128 diegosouzapw/omniroute:latest
+  ```
+
+  In `.env`, set `PORT=20200` (and `NEXT_PUBLIC_BASE_URL=http://localhost:20200`) to make the change permanent.
+</Accordion>
+
+<Accordion title="FATAL ERROR: Reached heap limit (V8 OOM in Docker)">
+  **Symptom:** OmniRoute crashes in Docker with `FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory`.
+
+  **Cause:** The default Node.js V8 heap limit is too low for the number of concurrent heavy (long-context) requests. Coding agents send large context windows that each require a significant amount of heap.
+
+  **Fix — increase the memory limit:**
+
+  In your `.env` or Docker environment, set:
+
+  ```bash
+  OMNIROUTE_MEMORY_MB=8192   # 8 GB recommended for coding agent workloads
+  ```
+
+  Also increase the Docker container memory limit:
+
+  ```bash
+  # docker run
+  docker run --memory=10g ...
+
+  # docker-compose
+  services:
+    omniroute:
+      mem_limit: 10g
+  ```
+
+  <Tip>
+    For production coding-agent deployments, `OMNIROUTE_MEMORY_MB=8192` with a 10 GB container limit is a safe starting point. Adjust based on the number of concurrent sessions observed in Dashboard → Usage.
+  </Tip>
+</Accordion>
+
+<Accordion title="SQLite errors on startup">
+  **Symptom:** Startup fails with errors like `EACCES: permission denied`, `SQLITE_CANTOPEN`, or `unable to open database file`.
+
+  **Cause:** OmniRoute cannot read or write its data directory. The default location is `~/.omniroute/`. In Docker, a missing or read-only volume mount causes the same error.
+
+  **Fix:**
+
+  ```bash
+  # Check and fix permissions on the default data directory
+  chmod -R 755 ~/.omniroute/
+
+  # Or override the data directory to a writable path
+  DATA_DIR=/path/to/writable/dir omniroute
+
+  # In Docker, ensure the volume is mounted correctly
+  docker run -v omniroute-data:/app/data diegosouzapw/omniroute:latest
+  ```
+
+  Set `DATA_DIR` in `.env` to make the override permanent. The directory must be writable by the user running the OmniRoute process.
+</Accordion>
+
+---
+
+## Provider & Routing Issues
+
+<Accordion title="Provider returns 429 Too Many Requests">
+  **Symptom:** Requests return `HTTP 429` from a specific provider, sometimes with a `Retry-After` header.
+
+  **Cause:** The provider's rate limit or quota window has been exhausted. OmniRoute handles this automatically: it places the connection in a rate-limited cooldown and routes subsequent requests to other available providers in the combo.
+
+  **What to check:**
+
+  1. Open **Dashboard → Providers** and look for the cooldown indicator on the affected provider card.
+  2. The connection will re-enable automatically when the `Retry-After` window expires.
+  3. If requests keep failing across all providers, check **Dashboard → Health** for circuit breaker state (`CLOSED` → `DEGRADED` → `OPEN` → `HALF_OPEN`).
+
+  **To recover faster:**
+
+  ```bash
+  # Reset all circuit breakers (management auth required)
+  curl -X POST http://localhost:20128/api/resilience/reset \
+    -H "Authorization: Bearer YOUR_MANAGEMENT_KEY"
+
+  # Or clear a single model lockout
+  curl -X DELETE http://localhost:20128/api/resilience/model-cooldowns \
+    -H "Authorization: Bearer YOUR_MANAGEMENT_KEY" \
+    -H "Content-Type: application/json" \
+    -d '{"provider": "openai", "model": "gpt-4o"}'
+  ```
+
+  If the same provider keeps tripping the breaker, add a second account for that provider in **Dashboard → Providers → Accounts** or include a free-tier fallback in your combo.
+</Accordion>
+
+<Accordion title="'auto' model returns an error immediately">
+  **Symptom:** Using `"model": "auto"` returns an error on the first request rather than routing to any provider.
+
+  **Cause:** No providers are connected and active. The `auto` router has an empty eligible set to route to.
+
+  **Fix:**
+
+  1. Open **Dashboard → Providers**
+  2. Connect at least one provider. Free options that require no API key include Kiro, Pollinations, and others visible in the provider catalog.
+  3. Test the connection using the **Test** button on the provider card.
+  4. Try the request again — `auto` will route to the newly connected provider.
+
+  ```bash
+  # Verify at least one provider is active
+  omniroute providers list
+  omniroute providers test-all
+  ```
+</Accordion>
+
+<Accordion title="Rate limiting from free providers (429 / 400 / 401 under automation)">
+  **Symptom:** Requests using `model: "auto"` intermittently fail with `429`, `400`, or `401` when running automation (cron jobs, agents, scripts), but succeed when retrying the same prompt manually.
+
+  **Cause:** Three failure modes can stack:
+  1. Free-tier provider rate limits exhausted by a burst of parallel requests.
+  2. The `auto` pool includes passthrough models with no live credentials that return `401`.
+  3. Multiple concurrent agent sessions exceed aggregate free-tier quotas.
+
+  **Fix** — set these environment variables and restart OmniRoute:
+
+  ```bash
+  OMNIROUTE_ROTATE_ON_400=true              # Hop to next provider on 400/401
+  OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT=4      # Allow more concurrent heavy requests
+  OMNIROUTE_CHAT_ADMISSION_QUEUE_MS=5000    # Wait up to 5s for a slot before 503
+  ```
+
+  `OMNIROUTE_ROTATE_ON_400=true` is the highest-leverage fix: it converts hard provider failures into transparent retries against a healthy provider in the pool.
+</Accordion>
+
+---
+
+## Client Connection Issues
+
+<Accordion title="Claude Code or Codex CLI cannot connect">
+  **Symptom:** Claude Code or Codex CLI reports a connection error, `401 Unauthorized`, or `Failed to connect to OmniRoute`.
+
+  **Cause:** The most common causes are an incorrect base URL (missing the `/v1` suffix), a wrong or missing API key, or OmniRoute not running.
+
+  **Checklist:**
+
+  1. **Verify OmniRoute is running:** `curl http://localhost:20128/healthz` should return `200`.
+  2. **Check the base URL:**
+     - Claude Code uses `http://localhost:20128` (no `/v1` suffix — Claude Code appends paths itself)
+     - Codex CLI, Cline, Continue, KiloCode, and OpenAI-compatible tools use `http://localhost:20128/v1` (with trailing `/v1`)
+  3. **Check the API key:** Copy a fresh key from **Dashboard → API Manager**.
+
+  **Quick auto-fix:**
+
+  ```bash
+  omniroute setup-claude   # Rewrites ~/.claude/settings.json correctly
+  omniroute setup-codex    # Rewrites ~/.codex/config.toml correctly
+  ```
+
+  **Manual Claude Code config** (`~/.claude/settings.json`):
+
+  ```json
+  {
+    "env": {
+      "ANTHROPIC_BASE_URL": "http://localhost:20128",
+      "ANTHROPIC_AUTH_TOKEN": "sk-your-omniroute-key"
+    }
+  }
+  ```
+
+  **Manual Codex CLI config** (`~/.codex/config.toml`):
+
+  ```toml
+  model_provider = "omniroute"
+
+  [model_providers.omniroute]
+  name                 = "OmniRoute"
+  base_url             = "http://localhost:20128/v1"
+  env_key              = "OMNIROUTE_API_KEY"
+  requires_openai_auth = false
+  ```
+</Accordion>
+
+<Accordion title="Tokenized URL not working">
+  **Symptom:** Using a tokenized URL like `http://localhost:20128/vscode/YOUR_KEY/chat/completions` returns `401` or `404`.
+
+  **Cause:** The most common causes are a trailing slash after the key segment, using the wrong path format, or the gateway not running.
+
+  **Fix:**
+
+  ```bash
+  # Correct format — no trailing slash after the key
+  curl http://localhost:20128/api/v1/vscode/YOUR_KEY/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{"model":"auto","messages":[{"role":"user","content":"hello"}]}'
+
+  # List models via tokenized URL
+  curl http://localhost:20128/api/v1/vscode/YOUR_KEY/models
+
+  # Ollama-compatible tokenized alias
+  curl http://localhost:20128/api/v1/vscode/YOUR_KEY/api/chat
+  ```
+
+  Verify the API key is valid in **Dashboard → API Manager** and that OmniRoute is running (`curl http://localhost:20128/healthz`).
+</Accordion>
+
+<Accordion title="CORS errors from browser clients">
+  **Symptom:** Browser-based clients (OpenWebUI, custom web apps) receive `CORS policy: No 'Access-Control-Allow-Origin' header` errors when calling OmniRoute.
+
+  **Cause:** OmniRoute does not send CORS headers for origins that are not explicitly allowlisted. The default configuration permits no cross-origin browser requests.
+
+  **Fix** — add the browser origin to the allowlist in `.env`:
+
+  ```bash
+  # Allow a specific origin
+  CORS_ALLOWED_ORIGINS=http://localhost:3000,https://your-openwebui.example.com
+
+  # Development only — allow all origins (never use in production)
+  CORS_ALLOW_ALL=true
+  ```
+
+  Restart OmniRoute after changing `.env`. For production deployments behind a reverse proxy, prefer setting `CORS_ALLOWED_ORIGINS` to the exact public origin rather than using `CORS_ALLOW_ALL`.
+</Accordion>
+
+---
+
+## MCP & Management API Issues
+
+<Accordion title="MCP connection refused from remote client">
+  **Symptom:** A remote MCP client cannot connect to `http://your-server:20128/api/mcp/stream` or `/api/mcp/sse`. Local connections work.
+
+  **Cause:** By default, the MCP transports require a Bearer API key with `manage` scope for remote (non-loopback) connections. An inference key (`sk-…`) without `manage` scope will be rejected with `403`.
+
+  **Fix:**
+
+  1. Open **Dashboard → API Manager** and edit the API key used by the MCP client.
+  2. Enable the `manage` scope on the key.
+  3. Confirm MCP is enabled: **Dashboard → Settings → MCP** — ensure it is toggled on and the transport matches (`sse` or `stream`).
+
+  ```bash
+  # Test the MCP connection with the manage-scoped key
+  curl http://your-server:20128/api/mcp/status \
+    -H "Authorization: Bearer sk-your-manage-scoped-key"
+  ```
+
+  <Note>
+    The `manage` scope grants access to management endpoints beyond MCP. For minimum privilege, create a dedicated API key with only `manage` scope for MCP remote access.
+  </Note>
+</Accordion>
+
+<Accordion title="omniroute doctor diagnosis steps">
+  Run `omniroute doctor` to automatically check the eight most common failure points:
+
+  ```bash
+  omniroute doctor           # Human-readable output
+  omniroute doctor --json    # Machine-readable (for CI pipelines)
+  ```
+
+  The doctor checks: **Config** (env vars and `.env` parse), **Database** (SQLite opens and passes integrity check), **Storage/encryption** (DATA_DIR writable, encryption key present if configured), **Port availability** (20128 not in use before start), **Node runtime** (version within supported `>=22.22.2 <23` or `>=24.0.0 <27` range), **Native binary** (`better-sqlite3` loads without error), **Memory** (available heap vs. configured limit), and **Server liveness** (HTTP probe to `/healthz`).
+
+  Exits `0` when all checks pass. Exits non-zero when any check is `fail` — suitable for CI health gates.
+</Accordion>
+
+---
+
+## Docker-Specific Issues
+
+<Accordion title="Docker IPv6 / Connection reset by peer">
+  **Symptom:** `curl http://localhost:20128/v1/models` returns `curl: (56) Recv failure: Connection reset by peer`. The dashboard loads but API calls fail.
+
+  **Cause:** `docker run -p 20128:20128` publishes on both IPv4 (`0.0.0.0`) and IPv6 (`::`) interfaces. On hosts where `localhost` resolves to `::1` first, the connection lands on the IPv6 published port with no listener behind it.
+
+  **Diagnosis:** `curl -4 http://localhost:20128/v1/models` — if this succeeds but `curl` without `-4` fails, it is an IPv6 bind mismatch.
+
+  **Fix:**
+
+  ```bash
+  # Bind to IPv4 explicitly
+  docker run -d --name omniroute --restart unless-stopped --stop-timeout 40 \
+    -p 127.0.0.1:20128:20128 \
+    -v omniroute-data:/app/data \
+    diegosouzapw/omniroute:latest
+  ```
+</Accordion>
+
+---
+
+## Still Stuck?
+
+<CardGroup cols={2}>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/diegosouzapw/OmniRoute/issues">
+    File a bug report or search existing issues on the OmniRoute GitHub repository.
+  </Card>
+  <Card title="Dashboard Health" icon="chart-line">
+    Open **Dashboard → Health** for real-time provider status, circuit breaker state, and latency telemetry.
+  </Card>
+  <Card title="Dashboard Translator" icon="code">
+    Use **Dashboard → Translator** to debug format translation issues between providers. Paste a failing request to see exactly how it is transformed.
+  </Card>
+  <Card title="API Reference" icon="book-open">
+    The full endpoint reference including all request and response headers is in the [API Reference](/reference/api) page.
+  </Card>
+</CardGroup>

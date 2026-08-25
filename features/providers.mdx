@@ -1,0 +1,193 @@
+---
+title: "AI Provider Catalog: 350+ Providers in One Endpoint"
+sidebarTitle: "Providers"
+description: "OmniRoute connects to 350+ AI providers — Claude, GPT, Gemini, DeepSeek, Groq, Mistral and 90+ free-tier options — through a single OpenAI-compatible API."
+---
+
+OmniRoute's provider catalog is the foundation of everything it does. Instead of integrating a dozen SDKs, rotating API keys by hand, and guessing which service is still healthy, you connect all your providers once through the dashboard and let OmniRoute handle the rest. The gateway currently registers **353 providers** across chat, media, search, local, cloud-agent, and system collections, with **154 catalog entries marked `hasFree: true`**. The chat model registry alone covers **268 providers, 2,566 distinct provider-model pairs, and 1,312 raw model IDs**.
+
+## Provider Families
+
+Every major AI lab and hundreds of independent inference services are available through a single `http://localhost:20128/v1` endpoint.
+
+<CardGroup cols={3}>
+  <Card title="Anthropic" icon="brain">
+    Claude Opus 4.x / 5, Sonnet 4.x / 5, Haiku 4.x — via API key or Claude Code OAuth
+  </Card>
+  <Card title="OpenAI" icon="microchip">
+    GPT-5, GPT-4o, Codex — API key, Codex CLI OAuth, or ChatGPT web session
+  </Card>
+  <Card title="Google" icon="google">
+    Gemini 2.5 / 3 Pro & Flash family, Gemma — AI Studio API key or Gemini web session
+  </Card>
+  <Card title="DeepSeek" icon="code">
+    DeepSeek V4 — API key, 5M free signup tokens, no credit card required
+  </Card>
+  <Card title="Mistral" icon="bolt">
+    Full model catalog — free Experiment tier: 2 RPM, 500K TPM, ~1B tokens/month
+  </Card>
+  <Card title="Groq" icon="gauge">
+    Llama 4, Mixtral, Qwen — free 30 RPM / 14.4K RPD tier, no credit card
+  </Card>
+  <Card title="Cohere" icon="arrows-spin">
+    Command R+ and full catalog — 1,000 API calls/month free trial
+  </Card>
+  <Card title="Meta (Llama)" icon="cube">
+    Llama 4 Scout, Maverick, and the open-weight family via multiple inference hosts
+  </Card>
+  <Card title="Kimi (Moonshot)" icon="moon">
+    Kimi K3 (1M context), Kimi Code Plan — API key and OAuth, OmniRoute founding partner
+  </Card>
+  <Card title="MiniMax" icon="diagram-project">
+    MiniMax M3, Hailuo — coding plan API key or web session
+  </Card>
+  <Card title="GLM / Z.AI" icon="database">
+    GLM-4.7 / 4.5-Flash / 4.6V — permanently free GLM-Flash, ZCode no-auth plan
+  </Card>
+  <Card title="Qwen (Alibaba)" icon="cloud">
+    Qwen3-Max / Coder / Flash — Cloud API key, Alibaba Model Studio, or web session
+  </Card>
+  <Card title="Perplexity" icon="magnifying-glass">
+    Sonar and Pro search models — API key, web session supported
+  </Card>
+  <Card title="Together AI" icon="layer-group">
+    300+ hosted open-weight models — $25 signup credit, API key
+  </Card>
+  <Card title="xAI Grok" icon="x">
+    Grok 3, Grok Build — xAI API key, Grok Build JWT OAuth, or xAI OAuth flow
+  </Card>
+</CardGroup>
+
+Additional families include Cerebras, NVIDIA NIM, SambaNova, SiliconFlow, Cloudflare Workers AI, Hugging Face, Fireworks AI, Baidu (ERNIE), Tencent (Hunyuan), Baichuan, and 330+ more — every one accessible through the same endpoint.
+
+## Connection Types
+
+Providers fall into four authentication categories. OmniRoute manages every credential type transparently.
+
+<Tabs>
+  <Tab title="API Key">
+    Paid and free-tier providers where you paste an API key from the provider's developer console. This covers most major labs: OpenAI, Anthropic, Google AI Studio, DeepSeek, Groq, Mistral, Cohere, and hundreds of others.
+
+    ```bash
+    # After connecting, call any provider/model directly
+    curl http://localhost:20128/v1/chat/completions \
+      -H "Authorization: Bearer YOUR_OMNIROUTE_KEY" \
+      -H "Content-Type: application/json" \
+      -d '{"model":"deepseek/deepseek-chat","messages":[{"role":"user","content":"Hello"}]}'
+    ```
+  </Tab>
+  <Tab title="OAuth">
+    Subscription and coding-plan providers where OmniRoute handles the OAuth 2.0 PKCE flow for you. You log in with your account once; OmniRoute stores and auto-refreshes the token. Examples: Claude Code, OpenAI Codex, GitHub Copilot, Cursor, Kimi Code CLI, Kilo Code, GitLab Duo, Grok Build.
+  </Tab>
+  <Tab title="No-Auth / Keyless">
+    Public endpoints that require no credential at all. OmniRoute pre-wires these into the `auto` model so a fresh install responds immediately. Examples: OpenCode Free (`oc/`), DuckDuckGo AI Chat (`ddgw/`), Pollinations (`pol/`), UncloseAI (`unc/`), AI Horde (`horde/`).
+  </Tab>
+  <Tab title="Web Session">
+    Cookie-based providers that wrap a provider's web app through an authenticated browser session. You capture a session token from DevTools and paste it into the dashboard. Examples: ChatGPT Web, Claude Web, Gemini Web, DeepSeek Web, Grok Web, Qwen Web, Kimi Web, Perplexity Web.
+
+    <Note>
+      Web-session providers are unofficial integrations. They can break when the upstream web app changes its session format. Use API-key or OAuth providers for production workloads.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Connecting Your First Provider
+
+<Steps>
+  <Step title="Open the Dashboard">
+    Go to `http://localhost:20128` in your browser and click **Providers** in the sidebar.
+  </Step>
+  <Step title="Click Add Provider">
+    Click the **+ Add Provider** button. Browse or search the catalog of 353 providers.
+  </Step>
+  <Step title="Enter Credentials">
+    - **No-auth providers** (Kiro AI, OpenCode Free, Pollinations): click **Connect** — no credentials needed.
+    - **API key providers**: paste your API key from the provider's developer console.
+    - **OAuth providers**: click **Connect with OAuth** and log in with your account.
+    - **Web-session providers**: paste the cookie or session token captured from DevTools.
+  </Step>
+  <Step title="Test the Connection">
+    Click **Test Connection** to verify the provider is reachable and your credentials are valid.
+  </Step>
+  <Step title="Use It">
+    Your provider is now live. Send requests using `model: "auto"` to let OmniRoute pick it automatically, or address it directly as `provider-alias/model-id`.
+  </Step>
+</Steps>
+
+<Tip>
+  Connect at least three providers — one free no-auth provider, one fast provider (Groq or Cerebras), and one quality provider (Anthropic or OpenAI) — then use `model: "auto"` for the best automatic routing experience.
+</Tip>
+
+## Programmatic Provider Discovery
+
+The provider plugin manifest is available at `/v1/omniroute/providers`. This read-only endpoint returns the full catalog with metadata including `hasFree`, authentication type, model list, and capability tags — useful for building tooling on top of OmniRoute.
+
+```bash
+# List all providers with metadata
+curl http://localhost:20128/v1/omniroute/providers \
+  -H "Authorization: Bearer YOUR_KEY"
+```
+
+You can also inspect the live auto-routing candidate pool for any `auto/*` channel:
+
+```bash
+# See which providers are active for the auto/coding channel
+curl http://localhost:20128/v1/auto-combo/coding/candidates \
+  -H "Authorization: Bearer YOUR_KEY"
+```
+
+## OmniRoute Radar
+
+Radar is an opt-in, signed catalog overlay that surfaces new free providers between OmniRoute releases. The community catalog and every existing free feature remain free; Radar provides fresher free-model availability for supporters who want to stay ahead of catalog updates.
+
+- **Opt-in only** — Radar is never enabled automatically.
+- **GET-only** — the OmniRoute client does not upload prompts, traffic, provider configuration, or usage telemetry to the Radar service.
+- **Ceiling ~3B tokens/month** (separate from the documented ~1.51B steady catalog) — dependent on provider availability and not a guarantee.
+
+Learn about eligibility at [radar.omniroute.online/planos](https://radar.omniroute.online/planos).
+
+## 3-Layer Provider Resilience
+
+Every provider connection is protected by three independent self-healing layers. A failure in one layer does not affect the others.
+
+<Accordion title="Layer 1 — Provider Circuit Breaker">
+  Trips at the **whole-provider level** when a threshold of 408 or 5xx errors is reached. Thresholds differ by connection type to match real-world reliability expectations:
+
+  | Connection type | Trip threshold | Reset window |
+  |---|---|---|
+  | OAuth (subscription) | 10× failures | 60 s → HALF-OPEN probe |
+  | API key | 15× failures | 30 s → HALF-OPEN probe |
+  | Local (Ollama, etc.) | 2× failures | 15 s → HALF-OPEN probe |
+
+  While the circuit is OPEN, OmniRoute reroutes all traffic to the next eligible healthy provider in the combo. The breaker recovers lazily — a single probe request in HALF-OPEN state promotes it back to CLOSED on success.
+</Accordion>
+
+<Accordion title="Layer 2 — Connection Cooldown">
+  Acts at the **individual key / account level** — a single cooling key is skipped while sibling keys for the same provider keep serving traffic.
+
+  - **Base cooldown**: 5 s for OAuth, 3 s for API key
+  - **Backoff**: exponential ×2 per consecutive failure (anti-thundering-herd guard prevents simultaneous retry storms)
+  - **429 handling**: honors the upstream `Retry-After` header exactly rather than guessing
+  - **Recovery**: a successful response clears all error state for that connection immediately
+</Accordion>
+
+<Accordion title="Layer 3 — Model Lockout">
+  Acts at the **individual model level** — a 429, local 404, or mode denial for a specific model locks only that model, never the whole connection or provider. Other models on the same connection continue serving normally.
+</Accordion>
+
+## Diagnosing Provider Health
+
+The `omniroute doctor` command inspects all connected providers, checks port availability, and reports native dependency status:
+
+```bash
+omniroute doctor
+```
+
+For a focused view of circuit-breaker and cooldown state, use the CLI resilience commands:
+
+```bash
+omniroute providers list       # all connected providers + health status
+omniroute health               # gateway health + active circuit breakers
+```
+
+The dashboard at `/dashboard/providers` also shows live per-provider health, last-seen latency, and quota telemetry for every connected account.

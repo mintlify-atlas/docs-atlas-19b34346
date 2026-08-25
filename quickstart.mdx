@@ -1,47 +1,173 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Started with OmniRoute in 3 Minutes"
+sidebarTitle: "Quickstart"
+description: "Install OmniRoute, connect a free provider, and route your first AI request — no API keys or credit card required to get started."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+OmniRoute is ready to answer requests the moment it starts. The `auto` model is pre-wired to keyless free providers, so you do not need an API key for any upstream service to complete this guide. From a fresh machine to your first routed AI response takes under three minutes.
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
+
+### Install OmniRoute
+
+<Tabs>
+  <Tab title="npm (recommended)">
+    ```bash
+    npm install -g omniroute
+    ```
+
+    Requires Node.js `>=22.22.2 <23` or `>=24.0.0 <27`. If you see `ERESOLVE` or peer-dependency warnings during install, they are harmless — the package resolves them internally.
+
+    To skip the post-install native warm-up in CI or on slow machines:
 
     ```bash
-    npm install your-package
+    OMNIROUTE_SKIP_POSTINSTALL=1 npm install -g omniroute
     ```
-  </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
-
+  </Tab>
+  <Tab title="Docker">
     ```bash
-    your-cli init
+    docker run -d \
+      --name omniroute \
+      --restart unless-stopped \
+      --stop-timeout 40 \
+      -p 127.0.0.1:20128:20128 \
+      -v omniroute-data:/app/data \
+      diegosouzapw/omniroute:latest
     ```
-  </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
-    ```
-  </Step>
-</Steps>
+    The default image sets `OMNIROUTE_MEMORY_MB=1024` — enough for the dashboard and light chat. Add `-e OMNIROUTE_MEMORY_MB=8192 --memory=10g` when running coding agents like Claude Code or Codex. See the [Installation guide](/installation) for the full RAM table.
+  </Tab>
+</Tabs>
+
+### Start the Gateway
+
+```bash
+omniroute
+```
+
+OmniRoute starts on port `20128`. The dashboard opens automatically in your browser at `http://localhost:20128`. The OpenAI-compatible API is available at `http://localhost:20128/v1`.
 
 <Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
-
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+  Run `omniroute --no-open` to suppress the automatic browser launch. Use `omniroute --port 3000` to change the default port.
 </Tip>
+
+### Connect a Free Provider
+
+You can use OmniRoute without paying anything by connecting a keyless free provider. Open the dashboard at `http://localhost:20128`, navigate to **Providers → Add Provider**, and connect one of:
+
+- **Kiro AI** — Free Claude access, ~50 credits/month per account. Click **Connect** (no API key required — uses a device-code OAuth flow).
+- **OpenCode Free** — No authentication at all. Multiple models including DeepSeek V4 and Nemotron 3. Click **Connect** and it works immediately.
+- **Pollinations** — No key needed. Provides GPT, Llama, Claude, Gemini, and more.
+
+<Note>
+  OpenCode Free and Felo are pre-wired into the `auto` combo on a fresh install, so the gateway answers immediately — even before you connect any provider via the dashboard. Connecting Kiro AI or additional providers improves routing quality and increases available quota.
+</Note>
+
+### Configure Your Coding Tool
+
+Get your API key from **Dashboard → Endpoints** (or the **API Keys** page). This key authenticates requests to OmniRoute — it is not a key for any upstream provider.
+
+Set the following in your IDE or CLI tool:
+
+```
+Base URL: http://localhost:20128/v1
+API Key:  <your OmniRoute key from Dashboard → Endpoints>
+Model:    auto
+```
+
+**One-command setup** for supported tools — OmniRoute writes each tool's config file directly:
+
+```bash
+omniroute configure codex      # writes ~/.codex/*.config.toml
+omniroute configure claude     # writes ~/.claude/profiles/<name>/settings.json
+omniroute configure opencode   # writes ~/.config/opencode/opencode.json
+omniroute configure cline      # Cline CLI + VS Code extension settings
+omniroute configure continue   # ~/.continue/config.yaml
+omniroute configure cursor     # prints Cursor's in-app steps
+omniroute configure aider      # ~/.aider.conf.yml
+omniroute configure goose      # ~/.config/goose/config.yaml
+```
+
+Or launch any supported CLI directly with credentials injected per-process:
+
+```bash
+omniroute run claude   --model auto
+omniroute run codex    --model auto
+omniroute run opencode --model auto
+omniroute run aider    --model auto
+omniroute run goose    --model auto
+omniroute run gemini   --model auto
+omniroute run qwen     --model auto
+```
+
+### Verify Your Setup
+
+```bash
+curl http://localhost:20128/v1/models \
+  -H "Authorization: Bearer YOUR_KEY"
+```
+
+You should see a JSON list of your connected models. Then send a real request:
+
+```bash
+curl http://localhost:20128/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello from OmniRoute!"}]
+  }'
+```
+
+A streaming response confirms OmniRoute is routing correctly. Check **Dashboard → Monitoring → Logs** to see the full request detail, including which provider was selected and how many tokens were used.
+
+</Steps>
+
+## The `auto` Model Variants
+
+Once you have multiple providers connected, you can tune the routing axis by using a specialised `auto` variant instead of the generic `auto`:
+
+| Model ID | Optimises for |
+|---|---|
+| `auto` | Balanced default — sticks to your last good provider (LKGP) |
+| `auto/coding` | Quality-first weights for code generation tasks |
+| `auto/fast` | Lowest latency first |
+| `auto/cheap` | Cheapest per-token first |
+| `auto/offline` | Most quota / rate-limit headroom first |
+| `auto/smart` | Quality-first + 10% exploration to discover better models |
+
+All variants fall back automatically if the top-scored provider is unhealthy or rate-limited.
+
+## Tokenized Compatibility URLs
+
+Some tools — older VS Code extensions, certain Copilot integrations — cannot attach `Authorization: Bearer …` headers. For those, OmniRoute exposes tokenized alias URLs that embed the key directly in the path:
+
+```
+OpenAI catalog:    http://localhost:20128/vscode/YOUR_KEY/
+OpenAI models:     http://localhost:20128/vscode/YOUR_KEY/models
+OpenAI chat:       http://localhost:20128/vscode/YOUR_KEY/chat/completions
+OpenAI responses:  http://localhost:20128/vscode/YOUR_KEY/responses
+Ollama chat:       http://localhost:20128/vscode/YOUR_KEY/api/chat
+Ollama tags:       http://localhost:20128/vscode/YOUR_KEY/api/tags
+```
+
+<Warning>
+  Use tokenized URLs only for clients that genuinely cannot send `Authorization` headers. Standard `Bearer` authentication is always preferred because the key never appears in server logs or browser history.
+</Warning>
+
+## What to Do Next
+
+<CardGroup cols={2}>
+  <Card title="Add More Free Providers" icon="plus-circle" href="/features/providers">
+    Connect SiliconFlow, Cerebras, Z.AI GLM, OpenRouter free models, and dozens more to increase your monthly free token budget.
+  </Card>
+  <Card title="Build a Custom Combo" icon="route" href="/features/combos-routing">
+    Chain specific models with `priority`, `weighted`, `round-robin`, or any of the 19 strategies for fine-grained routing control.
+  </Card>
+  <Card title="Enable Compression" icon="file-zip" href="/features/compression">
+    Turn on RTK → Caveman stacked compression to save 78–95% of tokens on tool-heavy coding sessions automatically.
+  </Card>
+  <Card title="Connect via MCP" icon="puzzle" href="/integrations/mcp">
+    Add OmniRoute as an MCP server in Claude Desktop or Cursor and let your AI agent manage routing and providers directly.
+  </Card>
+</CardGroup>

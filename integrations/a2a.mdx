@@ -1,0 +1,255 @@
+---
+title: "A2A Protocol: Let AI Agents Control OmniRoute"
+sidebarTitle: "A2A"
+description: "OmniRoute implements Agent-to-Agent (A2A) via JSON-RPC 2.0 + SSE at /.well-known/agent.json, with 6 skills letting any AI agent manage routing, combos, and providers."
+---
+
+OmniRoute implements the Agent-to-Agent (A2A) protocol v0.3, turning the gateway into a peer that other AI agents can discover, query, and control directly. Any agent that speaks A2A — built on Google ADK, a custom framework, or plain HTTP — can find OmniRoute's capabilities via the agent card at `/.well-known/agent.json`, invoke its 6 built-in skills, and receive streamed results via Server-Sent Events. This lets agents manage routing combos, check provider health, analyze costs, and run requests without any human in the loop.
+
+## Discovering the agent card
+
+```bash
+curl http://localhost:20128/.well-known/agent.json
+```
+
+The response is the Agent Card: a JSON document describing OmniRoute's capabilities, supported skills, transport details, and authentication requirements. The `version` field is auto-synced from `package.json` on every release.
+
+The agent card endpoint is **public** (no auth required) and cached for 3600 seconds. All skill invocations at `POST /a2a` require an API key via the `Authorization` header.
+
+## Agent interfaces overview
+
+OmniRoute exposes multiple interfaces for agent and automation use. A2A is one of them:
+
+| Interface | Endpoint / command | Use it for |
+|---|---|---|
+| MCP (stdio) | `omniroute --mcp` | IDE integrations — Claude Desktop, Cursor, Cline |
+| MCP (HTTP) | `/api/mcp/stream` | Remote MCP, 110 tools, full audit trail |
+| MCP (SSE) | `/api/mcp/sse` | Streaming MCP transport |
+| A2A | `/.well-known/agent.json` | Agent-to-agent, JSON-RPC 2.0 + SSE, 6 skills |
+| REST API | `/v1/*` | OpenAI-compatible endpoints (chat, images, audio, OCR) |
+| Webhooks | `/api/webhooks` | Push events (usage, quota, errors, routing decisions) |
+| Remote CLI | `omniroute connect <host>` | Drive a remote instance with scoped access tokens |
+
+## Enabling A2A
+
+A2A is **disabled by default**. Enable it from **Dashboard → Endpoints → A2A**. When disabled, `GET /api/a2a/status` reports `status: "disabled"` and JSON-RPC calls return HTTP 503 with error code `-32000`.
+
+## Authentication
+
+All requests to `POST /a2a` require a Bearer token:
+
+```
+Authorization: Bearer YOUR_OMNIROUTE_API_KEY
+```
+
+If no API key is configured on the server instance, authentication is bypassed. The auxiliary REST endpoints at `/api/a2a/*` (task list, task cancel) require management auth.
+
+## JSON-RPC 2.0 methods
+
+<Tabs>
+  <Tab title="message/send">
+    Synchronous execution: send a message to a skill and wait for the complete response.
+
+    ```bash
+    curl -X POST http://localhost:20128/a2a \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_KEY" \
+      -d '{
+        "jsonrpc": "2.0",
+        "id": "1",
+        "method": "message/send",
+        "params": {
+          "skill": "smart-routing",
+          "messages": [{"role": "user", "content": "Write a hello world in Python"}],
+          "metadata": {"model": "auto", "combo": "fast-coding"}
+        }
+      }'
+    ```
+
+    The response includes `artifacts` (the output content), `metadata.routing_explanation` (which provider was chosen and why), `metadata.cost_envelope`, and `metadata.resilience_trace`.
+  </Tab>
+  <Tab title="message/stream">
+    Same as `message/send` but returns Server-Sent Events for real-time streaming progress.
+
+    ```bash
+    curl -N -X POST http://localhost:20128/a2a \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_KEY" \
+      -d '{
+        "jsonrpc": "2.0",
+        "id": "1",
+        "method": "message/stream",
+        "params": {
+          "skill": "smart-routing",
+          "messages": [{"role": "user", "content": "Explain quantum computing"}]
+        }
+      }'
+    ```
+
+    SSE events carry `task.state` (`working` → `completed`) and `chunk.content` for streaming text.
+  </Tab>
+  <Tab title="tasks/get and tasks/cancel">
+    Query or cancel a running task by ID:
+
+    ```bash
+    # Get task status
+    curl -X POST http://localhost:20128/a2a \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_KEY" \
+      -d '{"jsonrpc":"2.0","id":"2","method":"tasks/get","params":{"taskId":"TASK_UUID"}}'
+
+    # Cancel a running task
+    curl -X POST http://localhost:20128/a2a \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer YOUR_KEY" \
+      -d '{"jsonrpc":"2.0","id":"3","method":"tasks/cancel","params":{"taskId":"TASK_UUID"}}'
+    ```
+  </Tab>
+</Tabs>
+
+## Built-in skills (6)
+
+OmniRoute exposes 6 A2A skills. Each skill module lives in `src/lib/a2a/skills/` and is registered in `A2A_SKILL_HANDLERS`.
+
+<CardGroup cols={2}>
+  <Card title="smart-routing" icon="route">
+    Routes a prompt through the optimal provider/combo using OmniRoute's combo engine and live scoring. Returns the response plus routing explanation, cost envelope, and resilience trace.
+  </Card>
+  <Card title="quota-management" icon="chart-bar">
+    Reports per-provider quota state (used/remaining/reset time). Helps agents decide when to throttle, switch providers, or wait for a quota window reset.
+  </Card>
+  <Card title="provider-discovery" icon="magnifying-glass">
+    Lists installed providers with their capabilities, free-tier flags, and OAuth status. Useful for agents that need to discover what backends are available before routing.
+  </Card>
+  <Card title="cost-analysis" icon="dollar-sign">
+    Estimates the cost of a request or conversation given the live catalog and recent usage. Returns per-provider cost estimates to help agents make cost-aware routing decisions.
+  </Card>
+  <Card title="health-report" icon="heart-pulse">
+    Aggregates circuit breaker, cooldown, and lockout state per provider. Returns a structured health summary agents can use to avoid routing to degraded backends.
+  </Card>
+  <Card title="list-capabilities" icon="list">
+    Returns the full 45-entry Agent Skills catalog as a markdown table with raw `SKILL.md` URLs for context injection. Designed for agents that need to discover OmniRoute's full surface before making API calls. `metadata.totalSkills` is always `42`.
+  </Card>
+</CardGroup>
+
+## Task lifecycle
+
+```
+submitted → working → completed
+                    → failed
+                    → cancelled
+```
+
+Tasks expire after 5 minutes by default (configurable via the `A2ATaskManager` TTL). Terminal states are `completed`, `failed`, and `cancelled`. A background interval sweeps expired tasks every 60 seconds.
+
+## Webhooks
+
+In addition to the A2A polling model, OmniRoute can push events to any HTTP endpoint via webhooks. Use webhooks to receive push notifications about routing decisions, quota crossings, provider errors, and request completions without polling.
+
+**Supported events:**
+
+| Event | Fires when |
+|---|---|
+| `request.completed` | A proxied request completes successfully |
+| `request.failed` | A request fails after all retries and fallback |
+| `provider.error` | A provider returns an error eligible for circuit-breaking |
+| `provider.recovered` | A previously failing provider returns to healthy |
+| `quota.exceeded` | An API key crosses a budget/quota threshold |
+| `combo.switched` | A combo strategy switches its primary target |
+| `test.ping` | Synthetic event for validating the receiver |
+
+**Creating a webhook:**
+
+```bash
+curl -X POST http://localhost:20128/api/webhooks \
+  -H "Cookie: auth_token=..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-receiver.example.com/omniroute-events",
+    "events": ["quota.exceeded", "provider.error"],
+    "description": "Routing event alerts"
+  }'
+```
+
+Each delivery is signed with HMAC-SHA256 in the `X-Webhook-Signature: sha256=<hex>` header. OmniRoute retries up to 3 times on 5xx and network errors, with exponential backoff. Endpoints with 10 or more consecutive failures are automatically disabled.
+
+**Testing a webhook:**
+
+```bash
+curl -X POST http://localhost:20128/api/webhooks/<id>/test \
+  -H "Cookie: auth_token=..."
+```
+
+## Integration examples
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import requests
+
+    resp = requests.post("http://localhost:20128/a2a", json={
+        "jsonrpc": "2.0", "id": "1",
+        "method": "message/send",
+        "params": {
+            "skill": "smart-routing",
+            "messages": [{"role": "user", "content": "Hello"}]
+        }
+    }, headers={"Authorization": "Bearer YOUR_KEY"})
+
+    result = resp.json()["result"]
+    print(result["artifacts"][0]["content"])
+    print(result["metadata"]["routing_explanation"])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const resp = await fetch("http://localhost:20128/a2a", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer YOUR_KEY",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "1",
+        method: "message/send",
+        params: {
+          skill: "smart-routing",
+          messages: [{ role: "user", content: "Hello" }],
+        },
+      }),
+    });
+    const { result } = await resp.json();
+    console.log(result.metadata.routing_explanation);
+    ```
+  </Tab>
+</Tabs>
+
+## REST endpoints (auxiliary)
+
+The JSON-RPC endpoint `POST /a2a` is the canonical A2A entry point. These REST endpoints provide auxiliary access for dashboards and tooling:
+
+| Endpoint | Method | Auth | Description |
+|---|---|---|---|
+| `/.well-known/agent.json` | `GET` | Public | Agent card (cached 3600s) |
+| `/api/a2a/status` | `GET` | Public | Server status and registered skills |
+| `/api/a2a/tasks` | `GET` | Management | List tasks with filters |
+| `/api/a2a/tasks/[id]` | `GET` | Management | Get task by ID |
+| `/api/a2a/tasks/[id]/cancel` | `POST` | Management | Cancel a running task |
+
+## Error codes
+
+| Code | Meaning |
+|---|---|
+| `-32700` | Parse error (invalid JSON) |
+| `-32600` | Invalid request or unauthorized |
+| `-32601` | Method or skill not found |
+| `-32602` | Invalid parameters |
+| `-32603` | Internal error |
+| `-32000` | A2A endpoint is disabled |
+
+## Choosing between A2A, MCP, and REST
+
+<Note>
+Use **A2A** when you have a peer agent that speaks the A2A v0.3 protocol and needs to collaborate — routing prompts, checking quota, discovering providers, or analyzing costs as a service. Use **MCP** when you need granular tool-level control from an IDE or multi-session HTTP client with 110 tools and scope-based auth. Use **REST** (`/v1/*`) for standard OpenAI-compatible completions, embeddings, and media generation.
+</Note>

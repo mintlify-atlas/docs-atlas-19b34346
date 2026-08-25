@@ -1,0 +1,231 @@
+---
+title: "OmniRoute Environment Variables Configuration"
+sidebarTitle: "Environment"
+description: "Complete reference for OmniRoute environment variables — required secrets, networking, storage, security, and routing policy settings for production deployments."
+---
+
+OmniRoute is configured entirely through environment variables. The repository ships a fully annotated `.env.example` that documents every recognized variable; copy it to `.env` and uncomment only what you need. The sections below group the most important variables by function and explain which ones are required before first boot.
+
+<Note>
+  `npm run check:env-doc-sync` enforces that every variable in `.env.example` is documented in `docs/reference/ENVIRONMENT.md` and vice versa. This check runs on commit and in CI.
+</Note>
+
+---
+
+## Minimal Production `.env`
+
+Before first run, generate strong secrets and write them to your `.env`:
+
+```bash
+echo "JWT_SECRET=$(openssl rand -base64 48)"
+echo "API_KEY_SECRET=$(openssl rand -hex 32)"
+echo "INITIAL_PASSWORD=$(openssl rand -base64 16)"
+echo "OMNIROUTE_WS_BRIDGE_SECRET=$(openssl rand -base64 32)"
+```
+
+Minimal production file:
+
+```env
+JWT_SECRET=<output of openssl rand -base64 48>
+API_KEY_SECRET=<output of openssl rand -hex 32>
+INITIAL_PASSWORD=<your-strong-password>
+PORT=20128
+```
+
+<Warning>
+  Never commit `.env` files with real secrets to version control. The `.gitignore` already excludes `.env`, but verify before pushing.
+</Warning>
+
+---
+
+## Required Secrets
+
+These variables **must** be set before the first run. Without them the application either refuses to start or operates with insecure defaults.
+
+| Variable | Default | Description |
+|---|---|---|
+| `JWT_SECRET` | _(none)_ | Signs and verifies all dashboard session cookies (JWT). Generate: `openssl rand -base64 48` |
+| `API_KEY_SECRET` | _(none)_ | AES encryption key for API key values stored at rest in SQLite. Generate: `openssl rand -hex 32` |
+| `INITIAL_PASSWORD` | `CHANGEME` | Sets the initial admin dashboard password. **Change before first use.** After login, change via Dashboard → Settings → Security. |
+| `OMNIROUTE_WS_BRIDGE_SECRET` | _(unset)_ | Shared secret for the internal Codex Responses WebSocket bridge. **Required in production** — when unset, all WS bridge requests are rejected. Generate: `openssl rand -base64 32` |
+
+<Warning>
+  `INITIAL_PASSWORD` defaults to `CHANGEME` — an obviously insecure value intended to force an immediate change. Do not leave it at the default in any non-local deployment.
+</Warning>
+
+---
+
+## Network & Ports
+
+| Variable | Default | Description |
+|---|---|---|
+| `PORT` | `20128` | Primary port for both Dashboard UI and API endpoints (single-port mode). |
+| `HOST` | `0.0.0.0` | Bind address for the Next.js dev/start server. |
+| `OMNIROUTE_SERVER_HOST` | `0.0.0.0` | Bind address for `omniroute serve`. Use this instead of `HOSTNAME` — POSIX shells auto-set `HOSTNAME` to the machine name. |
+| `API_PORT` | _(unset)_ | When set, serves `/v1/*` on a separate port from the dashboard. |
+| `API_HOST` | `0.0.0.0` | Bind address for the API port when `API_PORT` is set. |
+| `DASHBOARD_PORT` | _(unset)_ | When set, serves the Dashboard UI on a separate port. |
+| `NEXT_PUBLIC_BASE_URL` | `http://localhost:20128` | Public-facing URL for OAuth redirect URIs, Dashboard links, and generated public URLs. Set this to your stable public URL behind a reverse proxy. |
+| `OMNIROUTE_BASE_PATH` | _(empty)_ | URL subpath when serving OmniRoute under a reverse proxy path (e.g. `/omniroute`). Sets Next.js `basePath`. In Docker this is baked at image build time. |
+| `LIVE_WS_PORT` | `20132` | Port for the real-time WebSocket live monitoring server. |
+| `LIVE_WS_HOST` | `127.0.0.1` | Bind address for the live WebSocket server. Set to `0.0.0.0` to expose on LAN; also configure `LIVE_WS_ALLOWED_ORIGINS`. |
+
+### Port Modes
+
+<Tabs>
+  <Tab title="Single Port (default)">
+    ```
+    PORT=20128
+    → Dashboard: http://localhost:20128
+    → API:       http://localhost:20128/v1/chat/completions
+    ```
+  </Tab>
+  <Tab title="Split Ports">
+    ```
+    DASHBOARD_PORT=20128
+    API_PORT=20129
+    API_HOST=0.0.0.0
+    → Dashboard: http://localhost:20128
+    → API:       http://0.0.0.0:20129/v1/chat/completions
+    ```
+    Use case: expose the API to LAN while restricting the dashboard to localhost.
+  </Tab>
+  <Tab title="Docker Production">
+    ```
+    PROD_DASHBOARD_PORT=20130
+    PROD_API_PORT=20131
+    ```
+    These set the **host-side** published ports in `docker-compose.prod.yml`.
+  </Tab>
+</Tabs>
+
+---
+
+## Storage & Database
+
+OmniRoute uses SQLite (via `better-sqlite3`) for all persistence.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DATA_DIR` | `~/.omniroute/` | Root directory for the SQLite database, backups, and data files. Override for Docker volumes or custom paths. |
+| `DATABASE_URL` | _(derived from `DATA_DIR`)_ | Explicit SQLite path when you need to override the default `omniroute.db` location inside `DATA_DIR`. |
+| `OMNIROUTE_MEMORY_MB` | `1024` (Docker) / auto | V8 heap limit in MB, passed as `--max-old-space-size`. Docker always sets `1024`; `omniroute serve` on bare metal auto-calibrates to ~35% of RAM when unset. Use `8192`+ for coding agents. |
+| `STORAGE_ENCRYPTION_KEY` | _(empty = disabled)_ | AES key for full SQLite database encryption at rest. Generate: `openssl rand -hex 32`. Keep a secure backup — losing the key means losing data. |
+| `STORAGE_ENCRYPTION_KEY_VERSION` | `v1` | Version label for the encryption key. Increment when rotating to support decryption of old backups. |
+| `DISABLE_SQLITE_AUTO_BACKUP` | `false` | Set `true` to skip automatic SQLite backups on startup. Non-automatic backups are throttled to at most once per 60 minutes. |
+| `OMNIROUTE_SKIP_POSTINSTALL` | `0` | Set `1` to skip native-runtime warm-up during `npm install`. Useful in CI. `CI=1` also skips it. |
+
+### Storage Scenarios
+
+| Scenario | Configuration |
+|---|---|
+| **Local development** | Leave defaults. DB lives at `~/.omniroute/omniroute.db`. |
+| **Docker** | Set `DATA_DIR=/app/data` and mount a volume at `/app/data`. |
+| **Encrypted at rest** | Set `STORAGE_ENCRYPTION_KEY` and back up the key. |
+| **CI / Testing** | Set `DATA_DIR=/tmp/omniroute-test` for a throwaway ephemeral database. |
+
+---
+
+## Security & Authentication
+
+| Variable | Default | Description |
+|---|---|---|
+| `AUTH_COOKIE_SECURE` | `false` | Sets the `Secure` flag on session cookies. **Must be `true`** when running behind HTTPS. |
+| `REQUIRE_API_KEY` | `false` | When `true`, all `/v1/*` proxy requests must include a valid API key. |
+| `ALLOW_API_KEY_REVEAL` | `false` | Allows revealing full API key values in the Dashboard UI. Security risk on shared instances. |
+| `CORS_ALLOWED_ORIGINS` | _(unset)_ | Comma-separated CORS allowlist. No wildcard is sent unless `CORS_ALLOW_ALL=true` is explicitly set. |
+| `CORS_ALLOW_ALL` | `false` | Development-only escape hatch to echo any browser `Origin`. Never enable on shared or production deployments. |
+| `MAX_BODY_SIZE_BYTES` | `10485760` (10 MB) | Maximum allowed request body size. Rejects payloads exceeding this limit. |
+| `OMNIROUTE_ALLOW_PRIVATE_PROVIDER_URLS` | `false` | **Required for self-hosted providers** such as LM Studio, Ollama, vLLM, and Llamafile. Allows provider URLs pointing to private/local networks. |
+| `MACHINE_ID_SALT` | `endpoint-proxy-salt` | Salt combined with hardware identifiers for machine fingerprinting. Change per-deployment for isolation. |
+
+### Production Hardening Checklist
+
+```bash
+AUTH_COOKIE_SECURE=true          # Requires HTTPS
+REQUIRE_API_KEY=true             # Authenticate all proxy calls
+ALLOW_API_KEY_REVEAL=false       # Never expose keys in UI
+CORS_ALLOWED_ORIGINS=https://your.domain.com
+MAX_BODY_SIZE_BYTES=5242880      # 5 MB limit
+```
+
+---
+
+## Tool & Routing Policies
+
+| Variable | Default | Description |
+|---|---|---|
+| `TOOL_POLICY_MODE` | `disabled` | Controls LLM tool/function-calling access: `allowlist` = only listed tools, `denylist` = all except listed, `disabled` = no restrictions. |
+| `OMNIROUTE_DEFAULT_COMBO` | _(unset)_ | Default combo ID applied to requests that don't specify a particular combo. |
+| `OMNIROUTE_PAYLOAD_RULES_PATH` | `./config/payloadRules.json` | Path to a JSON file of per-model/protocol upstream payload manipulation rules. |
+| `OMNIROUTE_PAYLOAD_RULES_RELOAD_MS` | `5000` | Hot-reload interval (ms) for the payload rules file. Minimum `1000`. |
+| `COMBO_CONCURRENCY_PER_MODEL` | `3` | Per-model concurrency cap for round-robin combos. Validated to `>= 1`, clamped to `<= 32`. |
+| `DISABLE_CONTEXT_WINDOW_CHECKS` | `false` | Skip OmniRoute's local context-window check for direct single-model requests. Upstream providers still enforce their own limits. |
+
+---
+
+## Logging
+
+| Variable | Default | Description |
+|---|---|---|
+| `APP_LOG_LEVEL` | `info` | Application log verbosity: `debug`, `info`, `warn`, or `error`. |
+| `APP_LOG_FORMAT` | `text` | Log output format: `text` or `json`. |
+| `APP_LOG_TO_FILE` | `true` | Write logs to file in addition to stdout. |
+| `APP_LOG_FILE_PATH` | `<DATA_DIR>/logs/application/app.log` | Path to the application log file. |
+| `APP_LOG_MAX_FILE_SIZE` | `50M` | Maximum single log file size before rotation. Accepts plain bytes or suffixed values (`50M`, `1G`, `512K`). |
+| `APP_LOG_RETENTION_DAYS` | `7` | Days to keep rotated log files before auto-deletion. |
+| `ENABLE_REQUEST_LOGS` | _(unset)_ | Force detailed request logging on (`true`) or off (`false`), overriding the dashboard setting. |
+| `CALL_LOG_RETENTION_DAYS` | `7` | Days to keep request/call log entries in the database before auto-cleanup. |
+
+---
+
+## Memory Optimization
+
+| Variable | Default | Description |
+|---|---|---|
+| `OMNIROUTE_MEMORY_MB` | `1024` (Docker) | Node.js V8 heap limit in MB. Clamped to `[64, 16384]`. In a cgroup-capped container, set this explicitly — Node reads the host RAM, not the cgroup limit. |
+| `HEAP_PRESSURE_THRESHOLD_MB` | _(auto = 85% of heap)_ | Heap-pressure shed threshold in MB. Leave unset; it auto-calibrates to 85% of the V8 heap ceiling so it always tracks `OMNIROUTE_MEMORY_MB`. |
+| `OMNIROUTE_CHAT_MAX_HEAVY_IN_FLIGHT` | `1` | Maximum heavyweight chat requests admitted concurrently in one process. Two overlapping large contexts already abort ~12 GiB heaps — do not raise this without proportional RAM. |
+
+<Tip>
+  On a bare-metal server with 4 GB RAM, set `OMNIROUTE_MEMORY_MB=2048`. Leave ~300 MB for native memory (better-sqlite3, OS buffers) and the rest for V8.
+</Tip>
+
+---
+
+## Outbound Proxy
+
+Route upstream LLM provider calls through an HTTP or SOCKS5 proxy for egress control, geo-routing, or IP masking.
+
+| Variable | Default | Description |
+|---|---|---|
+| `ENABLE_SOCKS5_PROXY` | `true` | Enable SOCKS5 proxy agent for upstream calls. |
+| `HTTP_PROXY` | _(unset)_ | HTTP proxy for upstream calls. |
+| `HTTPS_PROXY` | _(unset)_ | HTTPS proxy for upstream calls. |
+| `ALL_PROXY` | _(unset)_ | Universal proxy — supports `socks5://` URLs. |
+| `NO_PROXY` | _(unset)_ | Comma-separated hostnames/IPs to bypass the proxy. |
+| `PROXY_FAIL_OPEN` | `false` | When `false` (default), a request whose assigned proxy fails is refused rather than falling back to a direct connection, preventing real-IP leaks. Set `true` to restore the legacy direct-fallback behavior. |
+| `ENABLE_TLS_FINGERPRINT` | `false` | Spoof TLS fingerprint to mimic Chrome 124 (`wreq-js`), countering JA3/JA4 blocking. |
+
+### Proxy Scenarios
+
+| Scenario | Configuration |
+|---|---|
+| **SOCKS5 through SSH tunnel** | `ALL_PROXY=socks5://127.0.0.1:7890` |
+| **Corporate HTTP proxy** | `HTTP_PROXY=http://proxy.corp.com:3128`, `HTTPS_PROXY=http://proxy.corp.com:3128`, `NO_PROXY=localhost,internal.corp.com` |
+| **Egress-controlled (no direct access)** | Leave `PROXY_FAIL_OPEN=false`. Requests fail hard when the proxy is unavailable instead of leaking via direct. |
+
+---
+
+## URLs & Reverse Proxy
+
+| Variable | Default | Description |
+|---|---|---|
+| `NEXT_PUBLIC_BASE_URL` | `http://localhost:20128` | Public-facing URL for OAuth callbacks, Dashboard links, and generated public URLs. Set to your stable canonical hostname behind nginx/Caddy. |
+| `BASE_URL` | `http://localhost:20128` | Internal server-to-server URL for sync jobs and self-fetches. Keep this as a loopback/container URL even when the app is publicly proxied. |
+| `OMNIROUTE_PUBLIC_URL` | _(unset)_ | Public origin used to compose async callback URLs (e.g. for kie.ai jobs). Also used as a generic public URL for other relays. |
+| `OMNIROUTE_TRUST_PROXY` | _(unset)_ | Trust `Forwarded` / `X-Forwarded-*` headers for public-origin derivation. Prefer setting `NEXT_PUBLIC_BASE_URL` explicitly instead. |
+
+<Note>
+  When deploying behind a reverse proxy, set `NEXT_PUBLIC_BASE_URL` to your stable public URL. Without it, OAuth callbacks can fail and generated public links can point at the internal container origin.
+</Note>

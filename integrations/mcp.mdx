@@ -1,0 +1,214 @@
+---
+title: "OmniRoute MCP Server: 110 Tools for AI Agents"
+sidebarTitle: "MCP"
+description: "OmniRoute exposes 110 MCP tools across routing, cache, compression, memory, and skills. Connect via stdio, SSE, or streamable HTTP to Claude Desktop, Cursor, or any MCP client."
+---
+
+OmniRoute includes a built-in Model Context Protocol (MCP) server that exposes 110 tools covering every aspect of the gateway — routing combos, cache control, compression settings, memory read/write, skill execution, proxy management, Radar catalog access, and context source operations (Obsidian, Notion, GitHub). Any MCP-capable client can connect and drive OmniRoute autonomously. The server runs across three transports so it works in IDEs, browser agents, and multi-session HTTP clients alike.
+
+## Transports
+
+| Transport | Endpoint | When to use |
+|---|---|---|
+| stdio | `omniroute --mcp` | IDE integrations (Claude Desktop, Cursor, Cline) |
+| SSE | `POST/GET /api/mcp/sse` | Browser/agent clients needing an event stream |
+| streamable-http | `POST/GET/DELETE /api/mcp/stream` | Multi-session HTTP clients (`mcp-session-id` header) |
+
+All three transports are backed by the same `createMcpServer()` factory and expose the identical 110-tool catalog. The active HTTP transport (`sse` or `streamable-http`) is selected by the `mcpTransport` setting in the dashboard. Switching transports closes existing sessions on the other transport.
+
+## Installing into Claude Desktop
+
+Add the following block to your Claude Desktop `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "omniroute": {
+      "command": "omniroute",
+      "args": ["--mcp"]
+    }
+  }
+}
+```
+
+This starts OmniRoute in stdio MCP mode when Claude Desktop launches. Claude Desktop then has access to all 110 tools for the duration of the session.
+
+## Installing into Claude Code
+
+```bash
+claude mcp add-server omniroute --type http --url http://localhost:20128/api/mcp/stream
+```
+
+This registers the streamable-HTTP transport as a persistent MCP server in Claude Code. Claude Code can now call OmniRoute tools (routing decisions, combo management, cache flushes, and more) during any session.
+
+## Starting the MCP server manually
+
+```bash
+# stdio transport (IDE integrations)
+omniroute --mcp
+
+# HTTP transport starts automatically when OmniRoute is running
+# SSE:              POST/GET http://localhost:20128/api/mcp/sse
+# Streamable HTTP:  POST/GET/DELETE http://localhost:20128/api/mcp/stream
+```
+
+## Remote access
+
+By default, `/api/mcp/*` is restricted to loopback clients (`localhost`, `127.0.0.1`, `::1`). To connect from a non-loopback host — through a tunnel, reverse proxy, or public hostname — the request must carry an `Authorization: Bearer <api-key>` header whose key holds either the `manage` scope or the narrower `mcp:connect` scope.
+
+**Granting `manage` scope:** Dashboard → API Keys → select a key → toggle **Management Access** on.
+
+**Granting `mcp:connect` scope (lower privilege):** This scope authorizes only the `/api/mcp/` bypass and no other management routes — the recommended choice for remote MCP-only callers.
+
+```bash
+# Example: initialize a remote streamable-HTTP session
+curl -i \
+  -H "Authorization: Bearer sk-…" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"my-client","version":"0"}}}' \
+  https://your-public-host.example/api/mcp/stream
+```
+
+## Tool catalog (110 tools)
+
+The 110 unique tools are computed by `countUniqueMcpTools()` in `open-sse/mcp-server/server.ts`. They are organized into the following groups:
+
+<Accordion title="Essential routing tools (13)">
+  | Tool | Description |
+  |---|---|
+  | `omniroute_get_health` | Uptime, memory, circuit breakers, rate limits, cache stats |
+  | `omniroute_list_combos` | All configured combos with strategies (optional metrics) |
+  | `omniroute_get_combo_metrics` | Performance metrics for a specific combo |
+  | `omniroute_switch_combo` | Activate or deactivate a combo |
+  | `omniroute_create_combo` | Create a validated combo through the combo API |
+  | `omniroute_check_quota` | Quota used/total, percent remaining, reset time, token health |
+  | `omniroute_route_request` | Send a chat completion through OmniRoute routing |
+  | `omniroute_cost_report` | Cost report by period (session/day/week/month) |
+  | `omniroute_list_models_catalog` | Full model catalog with capabilities, status, pricing |
+  | `omniroute_radar_catalog` | Local signed Radar catalog; optional provider/family filters |
+  | `omniroute_tool_search` | Discover tools from the registered MCP catalog |
+  | `omniroute_web_search` | Web search through the configured search providers |
+  | `omniroute_web_fetch` | Fetch web content through the configured fetch providers |
+</Accordion>
+
+<Accordion title="Advanced routing tools (11)">
+  | Tool | Description |
+  |---|---|
+  | `omniroute_simulate_route` | Dry-run routing simulation with fallback tree |
+  | `omniroute_set_budget_guard` | Session budget with degrade/block/alert action |
+  | `omniroute_set_routing_strategy` | Update combo strategy at runtime |
+  | `omniroute_set_resilience_profile` | Apply `aggressive` / `balanced` / `conservative` preset |
+  | `omniroute_test_combo` | Live test of every provider in a combo using a real upstream call |
+  | `omniroute_get_provider_metrics` | Per-provider metrics with p50/p95/p99 latency and circuit breaker state |
+  | `omniroute_best_combo_for_task` | Recommend combo by task type with budget/latency constraints |
+  | `omniroute_explain_route` | Explain why a request was routed to a specific provider |
+  | `omniroute_get_session_snapshot` | Full session snapshot: cost, tokens, top models/providers, errors |
+  | `omniroute_db_health_check` | Diagnose (and optionally auto-repair) database drift |
+  | `omniroute_sync_pricing` | Sync pricing data from external sources (LiteLLM) |
+</Accordion>
+
+<Accordion title="Cache tools (2)">
+  | Tool | Description |
+  |---|---|
+  | `omniroute_cache_stats` | Semantic cache, prompt-cache, and idempotency stats |
+  | `omniroute_cache_flush` | Flush cache globally or by signature/model |
+</Accordion>
+
+<Accordion title="Compression tools (13)">
+  Includes `omniroute_compression_status`, `omniroute_compression_configure`, `omniroute_set_compression_engine`, `omniroute_list_compression_combos`, `omniroute_compression_combo_stats`, and six CCR (Caller-Context-Reference) lifecycle tools (`omniroute_ccr_store`, `omniroute_ccr_retrieve`, `omniroute_ccr_inspect`, `omniroute_ccr_list`, `omniroute_ccr_delete`, `omniroute_ccr_stats`), plus `omniroute_rtk_discover` and `omniroute_rtk_learn`.
+
+  CCR entries are stored in-memory only (disappear on restart). Each block is limited to 2 MiB, each principal to 16 MiB, and the global store to 64 MiB. Entries default to a 24-hour TTL (maximum seven days).
+</Accordion>
+
+<Accordion title="Memory tools (3)">
+  | Tool | Description |
+  |---|---|
+  | `omniroute_memory_search` | Search memories by query / type / API key with token-budget enforcement |
+  | `omniroute_memory_add` | Add a memory entry (`factual` / `episodic` / `procedural` / `semantic`) |
+  | `omniroute_memory_clear` | Clear memories for an API key, optionally filtered by type or timestamp |
+</Accordion>
+
+<Accordion title="Skills tools (4)">
+  | Tool | Description |
+  |---|---|
+  | `omniroute_skills_list` | List registered skills with optional filtering |
+  | `omniroute_skills_enable` | Enable or disable a specific skill by ID |
+  | `omniroute_skills_execute` | Execute a skill with provided input |
+  | `omniroute_skills_executions` | List recent skill execution history |
+</Accordion>
+
+<Accordion title="Pool tools (6)">
+  | Tool | Description |
+  |---|---|
+  | `omniroute_oneproxy_fetch` | Fetch free proxies from the 1proxy marketplace |
+  | `omniroute_oneproxy_rotate` | Get the next available proxy by strategy |
+  | `omniroute_oneproxy_stats` | Pool stats, sync status, distribution by protocol and country |
+
+  Plus 3 additional agent skill catalog tools: `omniroute_agent_skills_list`, `omniroute_agent_skills_get`, `omniroute_agent_skills_coverage`.
+</Accordion>
+
+<Accordion title="Obsidian tools (22) and Notion tools (6)">
+  **Notion (6 tools):** `notion_search`, `notion_get_page`, `notion_list_block_children`, `notion_query_database`, `notion_get_database`, `notion_append_blocks`. Configure your Notion integration token from **Dashboard → Endpoint → Context Sources**.
+
+  **Obsidian (22 tools):** The Obsidian context source integration exposes 22 tools for reading and searching your Obsidian vault over the MCP protocol.
+
+  Additional groups: gamification tools (8), plugin management tools (8), local corpus tools (3).
+</Accordion>
+
+## Authentication and scopes
+
+MCP tools are gated by API key scopes. Scope enforcement is controlled by `OMNIROUTE_MCP_ENFORCE_SCOPES` (default: `false` — enforcement must be explicitly enabled). When enabled, a missing scope denies the tool call and logs `scope_denied:<reason>` in the audit trail.
+
+Common scopes:
+
+| Scope | Grants access to |
+|---|---|
+| `read:health` | Health, provider metrics, simulate route |
+| `read:combos` | List combos, combo metrics |
+| `write:combos` | Switch combo, set routing strategy |
+| `read:cache` / `write:cache` | Cache stats / cache flush |
+| `read:memory` / `write:memory` | Memory search / memory add and clear |
+| `execute:skills` | Skill execution |
+| `read:notion` / `write:notion` | Notion context source |
+| `mcp:connect` | Authorize remote `/api/mcp/` access (no other management routes) |
+
+Wildcard scopes are supported: `read:*` grants all read scopes, `*` grants full access.
+
+## Tool cardinality reduction
+
+To reduce the token cost of advertising the full 110-tool catalog to a model, you can restrict which tools are announced via environment variables:
+
+```bash
+# Drop specific tools from the catalog
+MCP_TOOL_DENY="omniroute_get_health,omniroute_list_combos" omniroute --mcp
+
+# Announce only the routing + quota tools (allow-list mode)
+MCP_TOOL_ALLOW="omniroute_route_request,omniroute_check_quota" omniroute --mcp
+```
+
+`MCP_TOOL_DENY` takes priority over `MCP_TOOL_ALLOW`. Filtered tools are disabled on the MCP SDK handle — they never appear in `tools/list` but the wiring stays intact.
+
+## REST status and audit endpoints
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/mcp/status` | `GET` | Server status: heartbeat, HTTP transport state, audit summary |
+| `/api/mcp/tools` | `GET` | Tool catalog (name, description, scopes, phase) |
+| `/api/mcp/sse` | `GET` / `POST` | SSE transport endpoint |
+| `/api/mcp/stream` | `POST`/`GET`/`DELETE` | Streamable HTTP transport |
+| `/api/mcp/audit` | `GET` | Audit log from `mcp_tool_audit` |
+| `/api/mcp/audit/stats` | `GET` | Aggregated audit stats (success rate, avg duration, top tools) |
+
+Every tool call is logged to the SQLite `mcp_tool_audit` table with the tool name, duration, success flag, API key hash, and timestamp. Scope denials are recorded as `scope_denied:<reason>` with the missing scope list.
+
+## Key environment variables
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `OMNIROUTE_MCP_ENFORCE_SCOPES` | `false` | Enable scope enforcement for tool calls |
+| `OMNIROUTE_MCP_SCOPES` | (empty) | Comma-separated default scopes when caller provides none |
+| `MCP_TOOL_DENY` | (unset) | Comma-separated tool names to drop from `tools/list` |
+| `MCP_TOOL_ALLOW` | (unset) | Comma-separated tool names to keep exclusively |
+| `OMNIROUTE_MCP_FETCH_TIMEOUT_MS` | `10000` | Abort budget for internal management reads |
+| `OMNIROUTE_MCP_UPSTREAM_TIMEOUT_MS` | `60000` | Abort budget for provider-waiting hops |

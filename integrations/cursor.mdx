@@ -1,0 +1,132 @@
+---
+title: "Connect Cursor IDE to OmniRoute AI Gateway"
+sidebarTitle: "Cursor"
+description: "Use OmniRoute as Cursor's AI backend to route requests through 350+ providers. Set the base URL to http://localhost:20128/v1 or auto-configure with omniroute setup-cursor."
+---
+
+Cursor accepts a custom OpenAI-compatible base URL in its settings, which lets you point all AI requests through OmniRoute. Every model in your OmniRoute catalog — including free-tier providers with no quota limits — becomes available in Cursor's model picker. You can set this up manually in the Cursor UI or use `omniroute setup-cursor` to print the exact steps for your running instance.
+
+## Pointing Cursor at OmniRoute
+
+Cursor stores its AI configuration in an internal SQLite database rather than a plain text file, so `omniroute setup-cursor` cannot write to it directly. Instead, the command prints the in-app configuration steps tailored to your OmniRoute instance (local or remote URL, API key).
+
+<Steps>
+  <Step title="Run the setup command">
+    ```bash
+    omniroute setup-cursor
+    ```
+    This prints the exact base URL and API key to enter into Cursor. No files are written.
+  </Step>
+  <Step title="Open Cursor Settings">
+    Go to **Cursor → Settings → Models** (or press `Cmd+,` / `Ctrl+,`, then navigate to the Models section).
+  </Step>
+  <Step title="Set the OpenAI base URL">
+    Under **OpenAI API Key**, enter your OmniRoute API key. Then set the **Base URL** to:
+
+    ```
+    http://localhost:20128/v1
+    ```
+
+    The `/v1` suffix is required for Cursor's OpenAI-compatible requests.
+  </Step>
+  <Step title="Select a model">
+    In the model field, enter `auto` for smart routing, `auto/coding` for code-optimized routing, or a specific provider model such as `glm/glm-5.2`.
+  </Step>
+</Steps>
+
+## Remote OmniRoute
+
+To connect Cursor to an OmniRoute instance running on a VPS, Tailscale node, or any remote host, pass `--remote` and `--api-key` to the setup command:
+
+```bash
+omniroute setup-cursor --remote http://YOUR_SERVER:20128 --api-key YOUR_KEY
+```
+
+The command prints the remote URL and key to paste into Cursor's settings. You can also filter the model list printed in the output:
+
+```bash
+omniroute setup-cursor --remote http://YOUR_SERVER:20128 --only glm,kimi
+```
+
+## Base URL conventions
+
+Cursor appends `/v1/chat/completions` to whatever base URL you configure, so the value you enter must end with `/v1`:
+
+```
+http://localhost:20128/v1
+```
+
+This is different from Claude Code, which uses the root URL and appends `/v1/messages` itself. `omniroute setup-cursor` always prints the correct form with `/v1`.
+
+## VS Code and Cursor with OmniCopilot
+
+For an even tighter integration — getting all OmniRoute models into Cursor's **native Copilot Chat model picker** — install the **OmniCopilot** extension from the Open VSX Registry (which covers Cursor, Windsurf, VSCodium, and other VS Code forks):
+
+```
+diegosouzapw.omnicopilot
+```
+
+After installing, OmniCopilot connects to OmniRoute on `localhost:20128` by default. Every chat-capable model in your catalog appears in **Copilot Chat → model picker → Manage Models… → OmniRoute**. No Copilot subscription is required — VS Code 1.122+ supports language-model providers without a GitHub sign-in.
+
+<Note>
+The extension requests `GET /v1/models?prefix=alias` so each model appears exactly once in the picker, without changing the server-wide prefix setting for your other clients.
+</Note>
+
+To connect OmniCopilot to a remote OmniRoute instance, open the OmniRoute panel in the Activity Bar (or run **OmniRoute: Manage Connection**) and set the server URL (root URL, no `/v1` suffix) and API key.
+
+## Cursor as a provider in OmniRoute
+
+OmniRoute supports connecting a **Cursor Pro account** as an upstream provider. When connected, the `cc/` prefix routes requests through Cursor's model endpoint, giving you access to Cursor's Claude/GPT models as one of the providers in your routing combos.
+
+To connect your Cursor account, go to **Dashboard → Providers → Cursor** and follow the OAuth flow. Once connected, Cursor models appear in your catalog under the `cc/` prefix (e.g., `cc/claude-opus-4-8`).
+
+<Warning>
+If both the Cursor provider (`cc/…`) and the Anthropic provider (`claude/…`) are connected, sending a bare `claude-*` model ID is ambiguous. Fix it by pinning a prefixed ID like `cc/claude-opus-4-8`, or enable **Prefer Claude Code for unprefixed Claude models** on the Claude provider page.
+</Warning>
+
+## Docker-based Cursor setup
+
+When running OmniRoute inside Docker and connecting Cursor from the host machine, the container's loopback address is not directly reachable from the host. Use the Docker bridge IP or expose the port to `0.0.0.0`:
+
+```bash
+docker run -d --name omniroute \
+  -p 0.0.0.0:20128:20128 \
+  -v omniroute-data:/app/data \
+  diegosouzapw/omniroute:latest
+```
+
+Then set Cursor's base URL to `http://localhost:20128/v1` (the port is mapped to the host). For Docker Desktop on macOS or Windows, the host is reachable as `host.docker.internal` from inside the container, but Cursor runs on the host so `localhost:20128` works directly.
+
+## Configuring Cursor from inside VS Code
+
+If you have OmniCopilot installed, you can configure Cursor (and all other supported tools) without leaving the editor. Run **OmniRoute: Configure Coding CLI** from the Command Palette to open the interactive picker, which drives `omniroute setup-cursor` and other `setup-*` commands using the OmniRoute API key stored securely in VS Code's SecretStorage.
+
+## Model selection recommendations
+
+| Use case | Model ID |
+|---|---|
+| Zero-config smart routing | `auto` |
+| Code generation, best quality | `auto/coding` |
+| Lowest latency | `auto/fast` |
+| Cheapest per token | `auto/cheap` |
+| Specific GLM model | `glm/glm-5.2` |
+| Specific Kimi model | `kmc/kimi-k2.6` |
+| Cursor Pro model via OmniRoute | `cc/claude-opus-4-8` |
+
+## Troubleshooting
+
+<Accordion title="Cursor shows 'API key invalid' or 401 errors">
+  Confirm the API key in Cursor's settings matches the one shown in **Dashboard → Endpoints**. If your local OmniRoute instance does not require auth, any non-empty string works as the key (Cursor requires a non-empty value in the field).
+</Accordion>
+
+<Accordion title="Models list is empty or stale">
+  Cursor fetches the model list from `GET /v1/models`. Confirm OmniRoute is running and reachable at `http://localhost:20128/v1/models`. If OmniCopilot is installed, use **OmniRoute: Refresh Models** to force a re-fetch.
+</Accordion>
+
+<Accordion title="OmniCopilot shows every model twice">
+  Update to OmniCopilot v1.0.1 or later. The extension now requests `?prefix=alias` to deduplicate the catalog. On a reference instance this collapsed 2,345 entries to 1,396 — 949 duplicates removed, zero models lost.
+</Accordion>
+
+<Accordion title="Connection refused when OmniRoute runs in Docker">
+  Ensure the container publishes port 20128 to the host with `-p 0.0.0.0:20128:20128`. Then use `http://localhost:20128/v1` as the base URL in Cursor.
+</Accordion>

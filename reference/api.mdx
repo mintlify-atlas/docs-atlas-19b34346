@@ -1,0 +1,434 @@
+---
+title: "OmniRoute REST API Reference: All Endpoints"
+sidebarTitle: "API Reference"
+description: "Complete reference for OmniRoute's OpenAI-compatible REST API — chat completions, models, embeddings, images, audio, MCP, A2A, and all custom request/response headers."
+---
+
+OmniRoute exposes a single OpenAI-compatible REST API on `http://localhost:20128`. Every endpoint uses standard Bearer token authentication, returns JSON, and accepts `application/json` bodies unless noted otherwise. The sections below cover every surface area — from the primary chat completions endpoint through media generation, MCP transports, and the A2A agent card.
+
+## Authentication
+
+OmniRoute supports three authentication methods. Standard Bearer token authentication is recommended whenever the client supports custom headers.
+
+<CardGroup cols={3}>
+  <Card title="Bearer Token" icon="key">
+    `Authorization: Bearer YOUR_KEY` on every request. Works with all endpoints.
+  </Card>
+  <Card title="Tokenized URL" icon="link">
+    Embed the key in the URL for tools that cannot send headers. The key is never sent to upstream providers.
+  </Card>
+  <Card title="Query String" icon="magnifying-glass">
+    `?token=`, `?apiKey=`, `?api_key=`, or `?key=` query parameters as a last resort.
+  </Card>
+</CardGroup>
+
+### Tokenized URL Aliases
+
+For integrations that cannot inject an `Authorization` header (VS Code extensions, Ollama-compatible clients), embed the API key directly in the URL:
+
+```bash
+# OpenAI-compatible endpoint
+http://localhost:20128/vscode/YOUR_KEY/chat/completions
+
+# Ollama-compatible endpoint
+http://localhost:20128/vscode/YOUR_KEY/api/chat
+
+# Models list
+http://localhost:20128/api/v1/vscode/YOUR_KEY/models
+```
+
+<Warning>
+  URL-embedded tokens may appear in reverse-proxy logs, browser history, and telemetry outside OmniRoute. Prefer `Authorization: Bearer` whenever the client supports it.
+</Warning>
+
+### API Key Scopes
+
+| Scope | Grants |
+|---|---|
+| _(none)_ | Inference endpoints (`/v1/*`) only |
+| `read` | Management GETs via Access Token |
+| `write` | Management mutations via Access Token |
+| `admin` | Full remote management via Access Token |
+| `manage` | Management API access on an inference API key (`sk-…`) |
+| `lease:exclusive` | Exclusive managed session leasing — requires an explicit `allowedConnections` list |
+
+---
+
+## Chat Completions
+
+`POST /v1/chat/completions` is the primary OmniRoute endpoint. It is fully compatible with the OpenAI Chat Completions API and supports all 350+ provider backends through a unified interface.
+
+```bash
+curl http://localhost:20128/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
+```
+
+### Request Parameters
+
+<ParamField body="model" type="string" required>
+  Model identifier. Use `auto` for automatic provider selection, `auto/fast` for latency-optimized routing, `auto/smart` for quality-optimized routing, or a provider-prefixed id such as `openai/gpt-4o` or `cc/claude-opus-4-6`. Combo ids and model aliases are also accepted.
+</ParamField>
+
+<ParamField body="messages" type="array" required>
+  Array of message objects in OpenAI format. Each object has a `role` (`system`, `user`, `assistant`, `tool`) and `content` (string or content-part array for multimodal).
+</ParamField>
+
+<ParamField body="stream" type="boolean" default="false">
+  When `true`, returns a Server-Sent Events stream of `data: {...}` chunks followed by `data: [DONE]`.
+</ParamField>
+
+<ParamField body="temperature" type="number">
+  Sampling temperature from 0 to 2. Higher values produce more random output.
+</ParamField>
+
+<ParamField body="max_tokens" type="integer">
+  Maximum tokens to generate. Provider limits apply.
+</ParamField>
+
+<ParamField body="tools" type="array">
+  Array of tool definitions in OpenAI function-calling format.
+</ParamField>
+
+<ParamField body="response_format" type="object">
+  Controls output format. Pass `{"type": "json_object"}` or a JSON Schema via `{"type": "json_schema", "json_schema": {...}}`. OmniRoute translates to native provider formats (Gemini `responseMimeType`, etc.).
+</ParamField>
+
+<ParamField body="reasoning_effort" type="string">
+  For thinking-capable models: `"low"`, `"medium"`, or `"high"`. Dropped automatically when routing to a non-thinking model.
+</ParamField>
+
+### Custom Request Headers
+
+OmniRoute reads these additional headers on every chat completion request:
+
+<ParamField header="X-OmniRoute-No-Cache" type="string">
+  Set to `true` to bypass the semantic cache for this request. Equivalent to per-request `cacheDefaultMode: "bypass"`.
+</ParamField>
+
+<ParamField header="x-omniroute-no-memory" type="string">
+  Set to `true` to skip memory and skills injection for this request. Avoids the per-call token and cost overhead of memory lookup.
+</ParamField>
+
+<ParamField header="X-OmniRoute-Progress" type="string">
+  Set to `true` to receive progress events during long-running requests.
+</ParamField>
+
+<ParamField header="X-Session-Id" type="string">
+  Sticky session key for external session affinity. The underscore variant `x_session_id` is also accepted on direct HTTP connections (requires `underscores_in_headers on` in nginx).
+</ParamField>
+
+<ParamField header="X-OmniRoute-Session-Id" type="string">
+  Caller-supplied session or conversation tag. When present, persisted verbatim to `call_logs.session_tag` for per-session cost attribution. Never synthesized when absent.
+</ParamField>
+
+<ParamField header="Idempotency-Key" type="string">
+  Deduplication key with a 5-second window. Identical requests within the window return the cached response. `X-Request-Id` is also accepted.
+</ParamField>
+
+<ParamField header="x-omniroute-compression" type="string">
+  Per-request compression override. Values: `off` (no compression), `default` (panel default profile), `engine:<id>` (e.g. `engine:rtk`), or a combo name or id. Beats all server-side settings. Unknown values are ignored without rejecting the request.
+</ParamField>
+
+### Custom Response Headers
+
+Non-streaming success responses carry a full set of telemetry headers:
+
+<ResponseField name="X-OmniRoute-Cache" type="string">
+  `HIT` or `MISS` — whether the response was served from the semantic cache. Non-streaming only.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Decision" type="string">
+  Routing trace in the form `strategy=<name>; provider=<alias>; latency_ms=<n>`. Always present on completion responses. `<name>` is the combo strategy or `single` for a non-combo request.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Version" type="string">
+  OmniRoute build version. Always present.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Response-Cost" type="string">
+  Request cost in USD with fixed 10 decimal places (e.g. `0.0000125000`). `0.0000000000` for free, unpriced, or cache-hit responses.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Tokens-In" type="string">
+  Prompt token count reported by the upstream provider.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Tokens-Out" type="string">
+  Completion token count reported by the upstream provider.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Model" type="string">
+  The model id that actually handled the request (after alias and combo resolution).
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Provider" type="string">
+  The provider alias that handled the request.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Latency-Ms" type="string">
+  End-to-end request latency in milliseconds.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Cache-Hit" type="string">
+  `true` when the response was served from the semantic cache. On a cache hit, `X-OmniRoute-Response-Cost` is `0.0000000000` (no upstream call was made).
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Cost-Saved" type="string">
+  The USD cost that the semantic cache avoided on a HIT. Use this field for cache analytics; sum `X-OmniRoute-Response-Cost` for billing.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Compression" type="string">
+  Applied compression plan in the form `<mode>; source=<source>`. The `source` is one of `request-header`, `routing-override`, `active-profile`, `auto-trigger`, `default`, or `off`.
+</ResponseField>
+
+<ResponseField name="X-OmniRoute-Fallback-Attempts" type="string">
+  Number of fallback attempts made before the successful response. Only present when greater than 0.
+</ResponseField>
+
+<Note>
+  On a semantic cache HIT, `X-OmniRoute-Cache-Latency: synthetic` is set in the response to indicate that the reported latency is not real upstream time. Check this header before including cache hits in latency benchmarks.
+</Note>
+
+---
+
+## Other Endpoints
+
+### Models
+
+```bash
+GET /v1/models
+Authorization: Bearer YOUR_KEY
+```
+
+Returns all available chat, embedding, and image models plus combos in OpenAI list format. Supports a `?prefix=` query parameter to control model id format:
+
+| Value | Behavior |
+|---|---|
+| `dual` | Both alias and canonical id per model (default) |
+| `alias` | One id per model — short alias prefix |
+| `canonical` | Only the full `provider/model` prefix |
+
+For-thinking capable Claude models, the endpoint also advertises `claude-3-omniroute-no-thinking/<provider>/<model>` variants that suppress reasoning tokens.
+
+### Responses API
+
+```bash
+POST /v1/responses
+Authorization: Bearer YOUR_KEY
+Content-Type: application/json
+```
+
+OpenAI Responses API–compatible endpoint. Also exposed over WebSocket at `ws://localhost:20128/v1/responses` for Codex CLI integration (requires `OMNIROUTE_WS_BRIDGE_SECRET` in production).
+
+### Embeddings
+
+```bash
+POST /v1/embeddings
+Authorization: Bearer YOUR_KEY
+Content-Type: application/json
+
+{
+  "model": "jina-ai/jina-embeddings-v5-omni-small",
+  "input": "The quick brown fox"
+}
+```
+
+Supported providers: Nebius, OpenAI, Mistral, Together AI, Fireworks, NVIDIA, OpenRouter, Jina AI. Models accepting multimodal input (Jina v5 Omni, Gemini Embedding 2) also accept structured `{type, source}` items for text, image, audio, video, and document content.
+
+### Image Generation
+
+```bash
+POST /v1/images/generations
+Authorization: Bearer YOUR_KEY
+Content-Type: application/json
+
+{
+  "model": "openai/gpt-image-2",
+  "prompt": "A serene mountain landscape at dawn",
+  "size": "1024x1024"
+}
+```
+
+Supported providers: OpenAI (GPT Image 2), xAI (Grok Image), Together AI (FLUX), Fireworks AI, Nebius, Hyperbolic, NanoBanana, OpenRouter, SD WebUI (local), ComfyUI (local).
+
+### Text-to-Speech
+
+```bash
+POST /v1/audio/speech
+Authorization: Bearer YOUR_KEY
+Content-Type: application/json
+
+{
+  "model": "openai/tts-1",
+  "input": "Hello from OmniRoute",
+  "voice": "alloy"
+}
+```
+
+Returns the audio body directly (`audio/mpeg` or the requested format). All cost telemetry headers are included on the response.
+
+### Speech-to-Text
+
+```bash
+POST /v1/audio/transcriptions
+Authorization: Bearer YOUR_KEY
+Content-Type: multipart/form-data
+
+# Example using curl:
+curl -X POST http://localhost:20128/v1/audio/transcriptions \
+  -H "Authorization: Bearer YOUR_KEY" \
+  -F "file=@recording.mp3" \
+  -F "model=openai/whisper-1"
+```
+
+Supported formats: `mp3`, `wav`, `m4a`, `flac`, `ogg`, `webm`. Model ids are provider-prefixed: `openai/whisper-1`, `openrouter/deepgram/nova-3`, `deepgram/nova-3` (requires a native Deepgram key).
+
+### Anthropic Messages
+
+```bash
+POST /v1/messages
+Authorization: Bearer YOUR_KEY
+```
+
+Anthropic Messages API–compatible endpoint. OmniRoute translates to and from provider-native formats transparently.
+
+---
+
+## MCP Endpoints
+
+OmniRoute ships an embedded Model Context Protocol server with two HTTP transports. The MCP server must be enabled in Dashboard → Settings.
+
+<CardGroup cols={2}>
+  <Card title="Streamable HTTP" icon="arrows-rotate">
+    **GET/POST/DELETE** `/api/mcp/stream` — The newer MCP streamable HTTP transport. `GET` opens the SSE side; `POST` sends a JSON-RPC frame; `DELETE` ends a session.
+  </Card>
+  <Card title="SSE Transport" icon="satellite-dish">
+    **GET/POST** `/api/mcp/sse` — The SSE-based MCP transport. `GET` opens the SSE stream; `POST` sends a JSON-RPC frame. Returns `503` when MCP is disabled.
+  </Card>
+</CardGroup>
+
+Both transports require a Bearer API key with `manage` scope for remote access. Local loopback connections are permitted by default without the `manage` scope.
+
+---
+
+## A2A Endpoints
+
+OmniRoute exposes an Agent-to-Agent JSON-RPC 2.0 endpoint for inter-agent communication.
+
+### Agent Card
+
+```bash
+GET /.well-known/agent.json
+```
+
+Returns the public A2A agent card containing the gateway's name, description, capabilities, skill catalog, and authentication scheme. No authentication required. Cached publicly for 1 hour.
+
+### JSON-RPC
+
+```bash
+POST /a2a
+Authorization: Bearer YOUR_KEY
+Content-Type: application/json
+
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "message/send",
+  "params": {
+    "skill": "smart-routing",
+    "messages": [{"role": "user", "content": "Route this task"}]
+  }
+}
+```
+
+Supported methods: `message/send`, `message/stream`, `tasks/get`, `tasks/cancel`. Built-in skills: `smart-routing`, `quota-management`, `provider-discovery`, `cost-analysis`, `health-report`.
+
+---
+
+## Webhook Management
+
+```bash
+# List webhooks
+GET /api/webhooks
+
+# Create webhook
+POST /api/webhooks
+Content-Type: application/json
+
+{
+  "url": "https://your-server.example/hook",
+  "events": ["*"],
+  "secret": "optional-signing-secret",
+  "description": "All OmniRoute events"
+}
+```
+
+Webhooks fire on events including request completion, quota exhaustion, and key rotation. Secrets are masked to `<prefix>...` in list responses. Use `POST /api/webhooks/{id}/test` to send a test payload and verify delivery.
+
+---
+
+## Health & Liveness
+
+<CardGroup cols={2}>
+  <Card title="GET /healthz" icon="heart-pulse">
+    Full health check. Returns provider summary including `catalogCount`, `configuredCount`, `activeCount`, and `monitoredCount`.
+  </Card>
+  <Card title="GET /livez" icon="circle-check">
+    Kubernetes-style liveness probe. Returns a lightweight alive response without running provider health checks.
+  </Card>
+</CardGroup>
+
+---
+
+## Full Compatibility Surface
+
+OmniRoute exposes compatibility endpoints for every major AI SDK format:
+
+<Tabs>
+  <Tab title="OpenAI">
+    | Endpoint | Description |
+    |---|---|
+    | `POST /v1/chat/completions` | Chat completions |
+    | `POST /v1/responses` | Responses API |
+    | `POST /v1/embeddings` | Text embeddings |
+    | `POST /v1/images/generations` | Image generation |
+    | `POST /v1/images/edits` | Image editing (multipart) |
+    | `POST /v1/audio/speech` | Text-to-speech |
+    | `POST /v1/audio/transcriptions` | Speech-to-text |
+    | `POST /v1/moderations` | Content moderation |
+    | `GET /v1/models` | Model list |
+  </Tab>
+  <Tab title="Anthropic / Gemini">
+    | Endpoint | Description |
+    |---|---|
+    | `POST /v1/messages` | Anthropic Messages API |
+    | `POST /v1/messages/count_tokens` | Anthropic token counting |
+    | `GET /v1beta/models` | Gemini model list |
+    | `POST /v1beta/models/{...path}` | Gemini `generateContent` |
+  </Tab>
+  <Tab title="Ollama">
+    | Endpoint | Description |
+    |---|---|
+    | `POST /v1/api/chat` | Ollama chat format |
+    | `GET /api/tags` | Ollama model tags |
+  </Tab>
+  <Tab title="Dedicated Provider Routes">
+    | Endpoint | Description |
+    |---|---|
+    | `POST /v1/providers/{provider}/chat/completions` | Force a specific provider |
+    | `POST /v1/providers/{provider}/embeddings` | Provider-pinned embeddings |
+    | `POST /v1/providers/{provider}/images/generations` | Provider-pinned image generation |
+    | `POST /v1/rerank` | Cohere/Voyage-style reranking |
+    | `POST /v1/classify` | Jina classify |
+    | `POST /v1/segment` | Jina segmenter |
+    | `POST /v1/ocr` | Document OCR (Mistral, Azure, Vertex) |
+    | `POST /v1/videos/generations` | Video generation |
+    | `POST /v1/music/generations` | Music generation |
+  </Tab>
+</Tabs>
