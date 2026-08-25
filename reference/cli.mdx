@@ -1,7 +1,7 @@
 ---
 title: "OmniRoute CLI Reference: All 80+ Commands"
 sidebarTitle: "CLI Reference"
-description: "Complete CLI reference for OmniRoute — gateway control, provider management, combo routing, health diagnostics, token management, and auto-configure for every major coding tool."
+description: "Complete CLI reference for OmniRoute — start the gateway, manage providers, configure coding tools, run diagnostics, and manage API keys."
 ---
 
 The `omniroute` binary is the primary interface for running and managing the OmniRoute gateway. It covers everything from starting the server and connecting providers to managing API tokens, viewing logs, and auto-configuring every major AI coding tool to point at your gateway. All commands that interact with providers or usage data require the server to be running unless noted otherwise.
@@ -73,7 +73,15 @@ omniroute doctor --host 0.0.0.0        # Override liveness check host
 omniroute doctor --liveness-url <url>  # Full health endpoint URL override
 
 omniroute health                        # Detailed gateway health (breakers, cache, memory)
-omniroute resilience                    # Circuit breaker and cooldown state
+omniroute resilience status             # Circuit breaker and cooldown state
+omniroute resilience breakers           # Circuit breaker states per provider
+omniroute resilience cooldowns          # Rate-limit cooldowns per connection
+omniroute resilience lockouts           # Per-model lockout entries
+omniroute resilience reset --provider <p> [--yes]  # Reset breakers/cooldowns for a provider
+omniroute resilience profile show       # Show active resilience profile
+omniroute resilience profile set <name> # Set profile: aggressive|balanced|conservative|custom
+omniroute resilience config show        # Show resilience thresholds
+omniroute resilience config set --threshold <n> --reset-timeout <ms>  # Update thresholds
 omniroute status                        # Comprehensive runtime status
 ```
 

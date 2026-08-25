@@ -1,7 +1,7 @@
 ---
-title: "OmniRoute Environment Variables Configuration"
+title: "OmniRoute Environment Variables: Complete Config Reference"
 sidebarTitle: "Environment"
-description: "Complete reference for OmniRoute environment variables — required secrets, networking, storage, security, and routing policy settings for production deployments."
+description: "Reference for OmniRoute environment variables — required secrets, networking, storage, security, and routing policy settings for production deployments."
 ---
 
 OmniRoute is configured entirely through environment variables. The repository ships a fully annotated `.env.example` that documents every recognized variable; copy it to `.env` and uncomment only what you need. The sections below group the most important variables by function and explain which ones are required before first boot.
@@ -74,14 +74,14 @@ These variables **must** be set before the first run. Without them the applicati
 
 <Tabs>
   <Tab title="Single Port (default)">
-    ```
+    ```env
     PORT=20128
     → Dashboard: http://localhost:20128
     → API:       http://localhost:20128/v1/chat/completions
     ```
   </Tab>
   <Tab title="Split Ports">
-    ```
+    ```env
     DASHBOARD_PORT=20128
     API_PORT=20129
     API_HOST=0.0.0.0
@@ -91,7 +91,7 @@ These variables **must** be set before the first run. Without them the applicati
     Use case: expose the API to LAN while restricting the dashboard to localhost.
   </Tab>
   <Tab title="Docker Production">
-    ```
+    ```env
     PROD_DASHBOARD_PORT=20130
     PROD_API_PORT=20131
     ```
@@ -108,8 +108,6 @@ OmniRoute uses SQLite (via `better-sqlite3`) for all persistence.
 | Variable | Default | Description |
 |---|---|---|
 | `DATA_DIR` | `~/.omniroute/` | Root directory for the SQLite database, backups, and data files. Override for Docker volumes or custom paths. |
-| `DATABASE_URL` | _(derived from `DATA_DIR`)_ | Explicit SQLite path when you need to override the default `omniroute.db` location inside `DATA_DIR`. |
-| `OMNIROUTE_MEMORY_MB` | `1024` (Docker) / auto | V8 heap limit in MB, passed as `--max-old-space-size`. Docker always sets `1024`; `omniroute serve` on bare metal auto-calibrates to ~35% of RAM when unset. Use `8192`+ for coding agents. |
 | `STORAGE_ENCRYPTION_KEY` | _(empty = disabled)_ | AES key for full SQLite database encryption at rest. Generate: `openssl rand -hex 32`. Keep a secure backup — losing the key means losing data. |
 | `STORAGE_ENCRYPTION_KEY_VERSION` | `v1` | Version label for the encryption key. Increment when rotating to support decryption of old backups. |
 | `DISABLE_SQLITE_AUTO_BACKUP` | `false` | Set `true` to skip automatic SQLite backups on startup. Non-automatic backups are throttled to at most once per 60 minutes. |
@@ -156,7 +154,6 @@ MAX_BODY_SIZE_BYTES=5242880      # 5 MB limit
 | Variable | Default | Description |
 |---|---|---|
 | `TOOL_POLICY_MODE` | `disabled` | Controls LLM tool/function-calling access: `allowlist` = only listed tools, `denylist` = all except listed, `disabled` = no restrictions. |
-| `OMNIROUTE_DEFAULT_COMBO` | _(unset)_ | Default combo ID applied to requests that don't specify a particular combo. |
 | `OMNIROUTE_PAYLOAD_RULES_PATH` | `./config/payloadRules.json` | Path to a JSON file of per-model/protocol upstream payload manipulation rules. |
 | `OMNIROUTE_PAYLOAD_RULES_RELOAD_MS` | `5000` | Hot-reload interval (ms) for the payload rules file. Minimum `1000`. |
 | `COMBO_CONCURRENCY_PER_MODEL` | `3` | Per-model concurrency cap for round-robin combos. Validated to `>= 1`, clamped to `<= 32`. |

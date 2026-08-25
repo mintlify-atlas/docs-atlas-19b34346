@@ -1,7 +1,7 @@
 ---
-title: "A2A Protocol: Let AI Agents Control OmniRoute"
+title: "A2A Protocol — Let AI Agents Discover and Control OmniRoute"
 sidebarTitle: "A2A"
-description: "OmniRoute implements Agent-to-Agent (A2A) via JSON-RPC 2.0 + SSE at /.well-known/agent.json, with 6 skills letting any AI agent manage routing, combos, and providers."
+description: "OmniRoute implements A2A protocol v0.3 via JSON-RPC 2.0 and SSE at POST /a2a. Discover it at /.well-known/agent.json and invoke 6 built-in routing skills."
 ---
 
 OmniRoute implements the Agent-to-Agent (A2A) protocol v0.3, turning the gateway into a peer that other AI agents can discover, query, and control directly. Any agent that speaks A2A — built on Google ADK, a custom framework, or plain HTTP — can find OmniRoute's capabilities via the agent card at `/.well-known/agent.json`, invoke its 6 built-in skills, and receive streamed results via Server-Sent Events. This lets agents manage routing combos, check provider health, analyze costs, and run requests without any human in the loop.

@@ -1,7 +1,7 @@
 ---
 title: "Deploy OmniRoute with Docker: Containers & Compose"
 sidebarTitle: "Docker"
-description: "Run OmniRoute in Docker with a single command. Includes RAM sizing for coding agents, Docker Compose profiles, HTTPS with Caddy, and Cloudflare tunnel setup."
+description: "Run OmniRoute in Docker with a single command. Covers RAM sizing for coding agents, Docker Compose profiles, HTTPS with Caddy, and Cloudflare tunnels."
 ---
 
 OmniRoute ships a multi-platform Docker image (`linux/amd64` + `linux/arm64`) that bundles the Next.js standalone server, SQLite, and a self-contained runtime. A single `docker run` command is enough to get a working instance; the sections below cover environment file usage, Compose profiles, RAM sizing for coding agents, reverse-proxy HTTPS with Caddy, Cloudflare tunnels, and alternative runtimes like Podman and Bun.

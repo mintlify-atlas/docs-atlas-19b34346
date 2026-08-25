@@ -1,7 +1,7 @@
 ---
-title: "Connect Cursor IDE to OmniRoute AI Gateway"
+title: "Connect Cursor IDE to OmniRoute — AI Gateway Setup"
 sidebarTitle: "Cursor"
-description: "Use OmniRoute as Cursor's AI backend to route requests through 350+ providers. Set the base URL to http://localhost:20128/v1 or auto-configure with omniroute setup-cursor."
+description: "Use OmniRoute as Cursor's AI backend to access 350+ providers. Set base URL to http://localhost:20128/v1 in Cursor settings, or run omniroute setup-cursor."
 ---
 
 Cursor accepts a custom OpenAI-compatible base URL in its settings, which lets you point all AI requests through OmniRoute. Every model in your OmniRoute catalog — including free-tier providers with no quota limits — becomes available in Cursor's model picker. You can set this up manually in the Cursor UI or use `omniroute setup-cursor` to print the exact steps for your running instance.
@@ -76,13 +76,21 @@ To connect OmniCopilot to a remote OmniRoute instance, open the OmniRoute panel 
 
 ## Cursor as a provider in OmniRoute
 
-OmniRoute supports connecting a **Cursor Pro account** as an upstream provider. When connected, the `cc/` prefix routes requests through Cursor's model endpoint, giving you access to Cursor's Claude/GPT models as one of the providers in your routing combos.
+OmniRoute supports connecting a **Cursor API key** as an upstream provider (`cursor-api`, alias `cua`). When connected, requests route through Cursor's API endpoint and Cursor models appear in your catalog under the `cursor-api/` prefix (e.g., `cursor-api/auto`). Generate a Cursor API key at `https://cursor.com/dashboard/api`.
 
-To connect your Cursor account, go to **Dashboard → Providers → Cursor** and follow the OAuth flow. Once connected, Cursor models appear in your catalog under the `cc/` prefix (e.g., `cc/claude-opus-4-8`).
+To connect, go to **Dashboard → Providers → Cursor API** and add your API key (`crsr_…`). Once connected, models are addressable as `cursor-api/<model>` or `cua/<model>`.
 
-<Warning>
-If both the Cursor provider (`cc/…`) and the Anthropic provider (`claude/…`) are connected, sending a bare `claude-*` model ID is ambiguous. Fix it by pinning a prefixed ID like `cc/claude-opus-4-8`, or enable **Prefer Claude Code for unprefixed Claude models** on the Claude provider page.
-</Warning>
+```bash
+# Example: send a request through the Cursor API provider
+curl http://localhost:20128/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_OMNIROUTE_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"cursor-api/auto","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+<Note>
+The `cc/` prefix refers to the **Claude Code** OAuth provider, not the Cursor API provider. If both the Claude Code (`cc/…`) and Anthropic (`claude/…`) providers are connected, sending a bare `claude-*` model ID is ambiguous. Pin a prefixed ID like `cc/claude-opus-4-8` to avoid this, or enable **Prefer Claude Code for unprefixed Claude models** on the Claude provider page.
+</Note>
 
 ## Docker-based Cursor setup
 
@@ -111,7 +119,7 @@ If you have OmniCopilot installed, you can configure Cursor (and all other suppo
 | Cheapest per token | `auto/cheap` |
 | Specific GLM model | `glm/glm-5.2` |
 | Specific Kimi model | `kmc/kimi-k2.6` |
-| Cursor Pro model via OmniRoute | `cc/claude-opus-4-8` |
+| Cursor API provider model | `cursor-api/auto` |
 
 ## Troubleshooting
 

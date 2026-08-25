@@ -1,7 +1,7 @@
 ---
 title: "OmniRoute REST API Reference: All Endpoints"
 sidebarTitle: "API Reference"
-description: "Complete reference for OmniRoute's OpenAI-compatible REST API — chat completions, models, embeddings, images, audio, MCP, A2A, and all custom request/response headers."
+description: "Complete reference for OmniRoute's OpenAI-compatible REST API: chat completions, models, embeddings, images, audio, MCP, A2A, and custom headers."
 ---
 
 OmniRoute exposes a single OpenAI-compatible REST API on `http://localhost:20128`. Every endpoint uses standard Bearer token authentication, returns JSON, and accepts `application/json` bodies unless noted otherwise. The sections below cover every surface area — from the primary chat completions endpoint through media generation, MCP transports, and the A2A agent card.
@@ -28,10 +28,10 @@ For integrations that cannot inject an `Authorization` header (VS Code extension
 
 ```bash
 # OpenAI-compatible endpoint
-http://localhost:20128/vscode/YOUR_KEY/chat/completions
+http://localhost:20128/api/v1/vscode/YOUR_KEY/chat/completions
 
 # Ollama-compatible endpoint
-http://localhost:20128/vscode/YOUR_KEY/api/chat
+http://localhost:20128/api/v1/vscode/YOUR_KEY/api/chat
 
 # Models list
 http://localhost:20128/api/v1/vscode/YOUR_KEY/models

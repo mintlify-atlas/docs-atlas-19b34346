@@ -1,7 +1,7 @@
 ---
-title: "OmniRoute MCP Server: 110 Tools for AI Agents"
+title: "OmniRoute MCP Server — 110 Tools for AI Agent Control"
 sidebarTitle: "MCP"
-description: "OmniRoute exposes 110 MCP tools across routing, cache, compression, memory, and skills. Connect via stdio, SSE, or streamable HTTP to Claude Desktop, Cursor, or any MCP client."
+description: "OmniRoute's built-in MCP server exposes 110 tools for routing, cache, and memory. Connect via stdio, SSE, or streamable HTTP from any MCP client."
 ---
 
 OmniRoute includes a built-in Model Context Protocol (MCP) server that exposes 110 tools covering every aspect of the gateway — routing combos, cache control, compression settings, memory read/write, skill execution, proxy management, Radar catalog access, and context source operations (Obsidian, Notion, GitHub). Any MCP-capable client can connect and drive OmniRoute autonomously. The server runs across three transports so it works in IDEs, browser agents, and multi-session HTTP clients alike.
@@ -74,7 +74,7 @@ curl -i \
 
 The 110 unique tools are computed by `countUniqueMcpTools()` in `open-sse/mcp-server/server.ts`. They are organized into the following groups:
 
-<Accordion title="Essential routing tools (13)">
+<Accordion title="Essential routing tools (14)">
   | Tool | Description |
   |---|---|
   | `omniroute_get_health` | Uptime, memory, circuit breakers, rate limits, cache stats |
@@ -89,6 +89,7 @@ The 110 unique tools are computed by `countUniqueMcpTools()` in `open-sse/mcp-se
   | `omniroute_radar_catalog` | Local signed Radar catalog; optional provider/family filters |
   | `omniroute_tool_search` | Discover tools from the registered MCP catalog |
   | `omniroute_web_search` | Web search through the configured search providers |
+  | `omniroute_x_search` | Search X/Twitter via xAI/SuperGrok or the Xquik API. Requires credentials for the selected backend. |
   | `omniroute_web_fetch` | Fetch web content through the configured fetch providers |
 </Accordion>
 
@@ -138,14 +139,22 @@ The 110 unique tools are computed by `countUniqueMcpTools()` in `open-sse/mcp-se
   | `omniroute_skills_executions` | List recent skill execution history |
 </Accordion>
 
-<Accordion title="Pool tools (6)">
+<Accordion title="Proxy pool tools (3) and agent skill catalog tools (3)">
+  **Proxy pool tools (3):**
+
   | Tool | Description |
   |---|---|
   | `omniroute_oneproxy_fetch` | Fetch free proxies from the 1proxy marketplace |
   | `omniroute_oneproxy_rotate` | Get the next available proxy by strategy |
   | `omniroute_oneproxy_stats` | Pool stats, sync status, distribution by protocol and country |
 
-  Plus 3 additional agent skill catalog tools: `omniroute_agent_skills_list`, `omniroute_agent_skills_get`, `omniroute_agent_skills_coverage`.
+  **Agent skill catalog tools (3):**
+
+  | Tool | Description |
+  |---|---|
+  | `omniroute_agent_skills_list` | List all agent skills with optional category and area filters |
+  | `omniroute_agent_skills_get` | Get full metadata and SKILL.md content for a skill by ID |
+  | `omniroute_agent_skills_coverage` | Coverage stats: how many skills have SKILL.md files on the filesystem |
 </Accordion>
 
 <Accordion title="Obsidian tools (22) and Notion tools (6)">
